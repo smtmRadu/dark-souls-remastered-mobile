@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>2H Icon Final</title>
+<style>
+body{margin:0;padding:24px 16px;background:radial-gradient(circle at 30% 20%,#3b4a3e,#141a16 70%);color:#d9d2c3;font:15px Georgia,serif}
+h1{font-size:20px;margin:0 0 4px}p{margin:0 0 20px;opacity:.8}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:20px;max-width:1000px}
+.card{background:rgba(0,0,0,.25);border:1px solid #3a3226;border-radius:12px;padding:16px;text-align:center}
+.card h2{font-size:16px;margin:10px 0 4px}.card div{font-size:13px;opacity:.75}
+.sizes{display:flex;justify-content:center;align-items:center;gap:14px}svg{display:block}
+</style></head><body>
+<h1>2H: big sword base, outline arms from both sides</h1>
+<p>Close-up on the lower part of a greatsword (no tip): blade with fuller, crossguard, wrapped grip, pommel. Left arm grips high, right arm grips low.</p>
+<div class="grid" id="g"></div>
+<script>
+const I='#ebe5d8', F='rgba(28,26,23,.92)';
+function icon(sw){return `
+ <!-- blade, cut by the top edge -->
+ <path d="M-17,-95 L-17,-20 L17,-20 L17,-95" fill="none" stroke="${I}" stroke-width="${sw}" stroke-linejoin="round"/>
+ <path d="M-4,-95 L-4,-34 Q0,-27 4,-34 L4,-95" fill="none" stroke="${I}" stroke-width="${sw*0.55}"/>
+ <!-- crossguard with drooping quillons and end knobs -->
+ <path d="M-50,-12 Q-30,-22 0,-21 Q30,-22 50,-12 L48,-6 Q30,-12 0,-11 Q-30,-12 -48,-6 Z" fill="${I}"/>
+ <circle cx="-51" cy="-8" r="5" fill="${I}"/><circle cx="51" cy="-8" r="5" fill="${I}"/>
+ <!-- grip with leather wrap -->
+ <rect x="-7" y="-10" width="14" height="58" rx="3" fill="none" stroke="${I}" stroke-width="${sw*0.8}"/>
+ <g stroke="${I}" stroke-width="${sw*0.45}"><line x1="-7" y1="-2" x2="7" y2="4"/><line x1="-7" y1="40" x2="7" y2="46"/></g>
+ <!-- pommel -->
+ <ellipse cx="0" cy="56" rx="11" ry="8" fill="${I}"/><ellipse cx="0" cy="56" rx="4.5" ry="3" fill="${F}"/>
+ ${arm(1,6,sw)}${arm(-1,27,sw)}`}
+// outline forearm from the screen edge to a fist around the grip; dir 1 = from the left, -1 = from the right
+function arm(dir,y,sw){const g=`<g transform="scale(${dir},1)">
+ <path d="M-95,${y-6} L-40,${y-3} L-40,${y+19} L-95,${y+24}" fill="${F}" stroke="${I}" stroke-width="${sw}" stroke-linejoin="round"/>
+ <line x1="-46" y1="${y-3.5}" x2="-46" y2="${y+19.5}" stroke="${I}" stroke-width="${sw*0.6}"/>
+ <path d="M-40,${y-3} Q-34,${y-6} -20,${y-5} L8,${y-4} Q15,${y-3} 15,${y+4} L15,${y+12} Q15,${y+19} 8,${y+19} L-20,${y+19} Q-34,${y+20} -40,${y+19} Z"
+   fill="${F}" stroke="${I}" stroke-width="${sw}" stroke-linejoin="round"/>
+ <g stroke="${I}" stroke-width="${sw*0.5}" stroke-linecap="round">
+  <line x1="-1" y1="${y-3}" x2="-1" y2="${y+4}"/><line x1="6" y1="${y-3}" x2="6" y2="${y+4}"/>
+  <path d="M-24,${y+2} Q-12,${y+1} -6,${y+6}" fill="none"/></g></g>`;return g}
+function btn(sw,size){return `<svg width="${size}" height="${size}" viewBox="-80 -80 160 160">
+ <defs><clipPath id="c${size}${sw}"><circle r="74"/></clipPath></defs>
+ <circle r="76" fill="rgba(28,26,23,.45)" stroke="#8a6b45" stroke-width="4"/>
+ <g clip-path="url(#c${size}${sw})">${icon(sw)}</g></svg>`}
+const V=[['H1. Fine lines',3.2],['H2. Bold lines (reads better small)',4.4]];
+document.getElementById('g').innerHTML=V.map(([n,sw])=>`<div class="card"><div class="sizes">${btn(sw,56)}${btn(sw,150)}</div><h2>${n}</h2></div>`).join('');
+</script></body></html>

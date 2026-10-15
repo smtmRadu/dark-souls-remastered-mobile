@@ -1,0 +1,25 @@
+# Push only small project files: roadmap, docs, scripts, mod source. Never game files, saves, builds, big RE dumps.
+/*
+!/.gitignore
+!/PLAN.md
+!/.track/
+!/docs/
+!/mod/
+!/tools/
+!/design/
+!/re/
+
+# builds and outputs
+*.dll
+*.exe
+*.apk
+*.dcx
+__pycache__/
+/tools/out/
+/design/screens/
+
+# reverse engineering: notes and small scripts only (third-party repos and Ghidra projects stay local)
+/re/*
+!/re/RE_NOTES.md
+!/re/xref.py
+!/re/flipper_vtables.json
