@@ -115,12 +115,17 @@ R03_BUTTONS = {
     'R03-12': [(103, 355, 333, 361), (422, 674, 334, 362)],
 }
 TEXT_ALIGN = {}
+# R03-01 / R03-02 (user 2026-10-16): window 2x high and 1.5x wide (dialog scale in R03 around the screen centre),
+# buttons 3x the 56-unit height above (84 child units x 2.0 = 168 on screen) and 1.5x wide (from the scale), button
+# text preset 1 (2.0x), message text preset 2 (1.4x). Child space: message 64..123, buttons 140..224, box 0..233.
+R03_BIG = {'R03-01', 'R03-02'}
+FONT_BUMPS_R03 = {'R03-01': {8: 2}, 'R03-02': {8: 2}}   # text_message (button texts get preset 1 via RECTS)
 for _d, _bs in R03_BUTTONS.items():
     for _i, (_l, _r, _t, _b) in enumerate(_bs):
         _c, _h = (_t + _b) / 2, _b - _t
-        _big = (_l, round(_c - _h), _r, round(_c + _h))
+        _big = (_l, 140, _r, 224) if _d in R03_BIG else (_l, round(_c - _h), _r, round(_c + _h))
         NULL_RECTS[(_d, f'cursor_button0_{_i}')] = _big
-        RECTS[(_d, f'text_button0_{_i}')] = (_big, 2)
+        RECTS[(_d, f'text_button0_{_i}')] = (_big, 1 if _d in R03_BIG else 2)
         TEXT_ALIGN[(_d, f'text_button0_{_i}')] = 0x0a
         if _i == 0 and _d != 'R03-03':   # the highlight: button size (R03-03's cursor is the number field's)
             RECTS[(_d, 'cursor')] = (_big, None)
@@ -271,6 +276,10 @@ STRETCH_DOWN = {(d, s): 270 for d in ('I06_parchment6r', 'I06_parchment5r', 'I06
 # (mod/dinput8/title.c patch_fonts) makes them 2.0x / 1.4x (docs/ui/FONTS_RE.md). Font index != size order.
 FONT_BUMPS = {'I06-00': {7: 1}, 'I01-01': {8: 1}, 'R01-00': {7: 2, 9: 1}, 'R13-00': {6: 2}, 'R15-00': {6: 2},
               'R14-00': {7: 2, 9: 1}, 'R14-01': {7: 2}, 'F04-01': {8: 2}, 'F09-06': {8: 2}}
+FONT_BUMPS.update(FONT_BUMPS_R03)
+for _d in R03_BIG:   # R03-01 / R03-02 window 1.5x wide, 2x high around the screen centre (see R03_BIG)
+    DIALOG_SCALES[('R03', _d)] = ((1.5, 2.0), (641, 360))
+_SCALE_OF = {child: v for (parent, child), v in DIALOG_SCALES.items()}
 CENTRE_MENUS = True
 HIDE_KEY_GUIDE = True
 OFF_SCREEN = (-2000, -2000, -1968, -1984)
