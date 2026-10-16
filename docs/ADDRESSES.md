@@ -26,6 +26,7 @@ Sources: `re/RE_NOTES.md`, `docs/ui/UI_RE.md`, `docs/ui/FONTS_RE.md`, `docs/ui/A
 | `0x141c7a138` | .data ptr | R | Agent `lock.c:lock_apply`; App `readLockScan` (`LOCK_TGT_MAN`) | `LockTgtManImp*` (section 8). | |
 | `0x141c7a488` | .data ptr | R | Agent `cam.c:follow_cam` | Chr camera root. `[[[0x141c7a488]+0x60]+0x60]` = ChrExFollowCam (section 7). | DSR-Gadget ChrFollowCam AOB. |
 | `0x141c6aea0` | .data ptr | R | Agent `ui.c:ui_mouse_mode` | `PadMan*`. +0x68 = KB/mouse mode byte (section 10). | |
+| `0x141c71970` | .data ptr | R | App `poll` (`REMO_MAN`) | `RemoMan*` (real-time cutscene player). Byte +0x150 = cutscene plays; +0x151 / +0x152 = other remo bytes (getters 0x14028e440 / 0x14028e460, unknown). | Found 2026-10-16 via the debug event test `EcTestRemoPlaying` (vtable 0x141400950, slot 1 calls getter 0x1404917b0). App: cutscene = GAMEPLAY with only the Skip button. |
 | `0x141b68ec8` | .data ptr | R | App `readLockScan` (`RENDER_SIZE`) | Graphics object. +0x6f0 / +0x6f4 = render width / height (float). | Set once at graphics init. |
 
 ## 2. Menu: dialog objects and vtables
@@ -54,13 +55,20 @@ Dialog vtable slot 16 (`vt+0x80`) = `Update(this, float dt)`. The agent swaps th
 | 2 | +0x38 | R; W 1 | App `poll` (≠0 = INVENTORY); Agent `ui.c` `tab 0` | Inventory. 1 = open request, 0 = closed. |
 | 3 | +0x3c | R; W 10 | App `poll` (≠0 = EQUIPMENT); Agent `ui.c` `tab 1` | Equipment. 10 = open request, 11-19 sub-states. |
 | 8 | +0x50 | R; W 7 / 2 | App `poll` (≠0 = MENU, ==8 = BAR); Agent `hud.c:menu_hud` (≠0 = menu), `ui.c` `menubar` (W 7), `tab` (needs 8, then W 2) | Menu bar (StartTab). 0 closed, 7 open request, 8 bar open idle, 2 sub-menu opened from bar, 1/3/6 closing, 4/5 transitions. Option pages clear it when opened from System. |
+| 9 | +0x54 | R | App `poll` (2 = BONFIRE screen, 4 = `talking`); Agent `hud.c:menu_hud` (≠0 and ≠4 = menu) | Talk-ESD menus: 2 = bonfire list, 4 = NPC conversation, 0 = none. Goes 2 → 0 when a bonfire sub-screen (Level Up) opens. |
 | 0x11 | +0x74 | R | App `poll` (startup notice: ==1 on bare title; title sub-screen: ≠0) | General dialog (`FrpgMenuDlgGeneral`, yes/no, message box R09-00). Game test `IsGeneralIdle 0x140681ea0`. |
 | 0x13 | +0x7c | R | App `poll`; Agent `hud.c:menu_hud` | EnvOption (Options page). 0 and 5 = closed (5 stays after PC settings closes). |
 | 0x14 | +0x80 | R | App `poll` (==1 = TITLE) | Title menu active (1 = title shown). The app reads it as "MenuMan+0x80". |
 | 0x15 | +0x84 | R; W 1 | App `poll` (≠0 = STATUS); Agent `ui.c` `tab 2` | In-game Status. 1 = open. |
+| 0xb2 | +0x2f8 | R | App `poll` (title sub-screen / option page, ≠0 and ≠5); Agent `hud.c:menu_hud` | Network settings (FrpgMenuDlgNetworkOption). 2 = open; 0 and 5 = closed (like 0xb1 PC settings). DRB R16 (6 rows) / R17 (5 rows). |
+| 0x17 | +0x8c | R | App `poll` (≠0 = LEVEL_UP); Agent `hud.c:menu_hud` (≠0 = menu) | Level Up screen (from the bonfire). 1 = opening, 2 = open (statelog 2026-10-16). |
+| 0x19, 0x1a, 0xb, 0xc, 0xd, 0x40, 0x24 | +0x94, +0x98, +0x5c, +0x60, +0x64, +0x130, +0xc0 | R | App `poll` (`STATION_IDS`, ≠0 = MENU, screen OTHER); Agent `hud.c:menu_hud` (≠0 = menu) | Station menus: attune magic, bottomless box, buy shop, repair, upgrade, sell shop, warp (`re/ui/menu_ids.txt`). Attune: 0x9 2 → 0, 0x19 0 → 1 → 2 (statelog 2026-10-16). |
 | 0x1d | +0xa4 | R | App `poll` (title sub-screen, notice check) | Saved-characters list (Load Game / Delete). 3 reload, 4 browsing, 5 load, 6 delete, 0 closed. |
+| 0x1e | +0xa8 | R | App `poll` (`charMakeStep`), `dsrCharMakeWatch` | Character creation sub-step: 2 browsing, 5 "Enter character name" box (app presses OK), 7 typing the name (app opens the keyboard). (statelog 2026-10-16) |
 | 0x25 | +0xc4 | R | App `poll` | Face edit (character creation). |
 | 0x27 | +0xcc | R | App `poll` | Class select (`FrpgMenuDlgSelectArchitype`). |
+| 0x26 | +0xc8 | R | App `poll` (≠0 = CHAR_MAKE) | Character creation main screen (New Game). Stays 1 during the opening movie. Also 1 on the boot logo screens (with 0x3c = 1), so the app needs 0x1e ≠ 0 too. |
+| 0x29 | +0xd4 | R | App `poll` (≠0 = movie → Skip layer) | Bink movie playing (opening after character creation; 0x54 = 1 and 0x5b = 9 at the same time). |
 | 0x2a | +0xd8 | R; W 1 | App `poll` (≠0 = SYSTEM); Agent `hud.c:menu_hud` (==3 = decide step → HUD on), `ui.c` `tab 3` | System menu. 1 = open, 3 = decide step (a page is about to open). |
 | 0x3b | +0x11c | R | App `poll` (OPTIONS); Agent `hud.c:menu_hud` | DispOption (Display page). |
 | 0x42 | +0x138 | R | App `poll` (OPTIONS); Agent `hud.c:menu_hud` | SoundOption (Sound page). |
@@ -112,6 +120,15 @@ Phase logic in the app (`DsrGameState.poll`):
 | TitleDlg `+0x244` (i32) | heap | R | Agent `title_update` | Entry count. Pick must be < count. | |
 | TitleDlg `+0x24d` (u8) | heap | R | Agent `title_update` | Scroll mode (0 = no scroll). Pick rejected if ≠ 0. | |
 | TitleDlg `+0x254 / +0x255` (u8) | heap | R | Agent `title_update`; App `titleListShown` (reads i32 at +0x254, `& 0xffff == 0x0101`) | Both 1 = main-menu list shown and taking input. Both 0 on "TOUCH TO START". | Agent publishes the dialog address in `dsr_title_dlg.txt`. Picks older than 6 s are dropped. |
+
+### 5.1 Title version lines
+
+| Address | Section | R/W | Who | What | Notes |
+|---|---|---|---|---|---|
+| `0x141c84c58` | .data `std::wstring` | R/W | Agent `title.c:patch_version_text` | App version (stock L"1.03.1"). +0 allocator, +8 inline buffer or heap ptr, +0x18 size, +0x20 capacity (inline when < 8). Set to L"1.03.1-mobile". | Shown after FMG 401320 "App ver." by the title builder 0x1406935f8. |
+| `0x141c84c88` | .data `std::wstring` | R/W | same | Regulation version (stock L" 1.04"). Set to L" 1.04
+Modder: kbRadu". | After FMG 401322 "Regulation ver.". DRB `info_versionReg` is 2 lines tall, line spacing byte +0x12 = 36. |
+| `0x1400bd1b0` | .text fn | call | same | Game's `wstring::assign(this, ptr, len)`: the longer text is allocated by the game's allocator (freed normally at exit). | Called once from the agent thread when both strings hold the stock text. Off: `dsr_stockver`. |
 
 ## 6. Fonts
 
@@ -248,6 +265,14 @@ These `.text` addresses are named in the code. The agent never writes them.
 | `F05-00` (question box, "Quit game?") | Buttons 80 units high, font preset 2, divider hidden. |
 | all dialogs | Objects with scaling origin (1280, 0) → (640, 0) (centred); `text_key-guide*` off-screen. |
 
+### 15.1 Splash textures (`menu/menu_2.tpf.dcx`, file on disk)
+
+| Item | File | What | Who |
+|---|---|---|---|
+| `Logo_02` | `menu/menu_2.tpf.dcx` | Bandai Namco splash, DXT1 4096x2048, stock on white. Recoloured in place: background → black, white letters kept. | `tools/dark_splash.py` → `tools/out/menu_2.tpf.dcx` (pushed by `batch_test.sh`) |
+| `logo_BNG` `object1..4` | `menu/menu.drb.dcx` | White MonoRects around the splash (22:9 side bars). Colour RGBA at shape +0x18 → black. | `patch_menu.py` `MONO_COLOR` |
+| `Logo_01` / `Logo_03` / `Logo_04` | `menu_2` / `menu_4` | FromSoftware, Havok and the DSR title art: already on black. | none |
+
 ## 16. Flag files (game folder)
 
 Create the file to switch the patch off (unless noted).
@@ -258,6 +283,7 @@ Create the file to switch the patch off (unless noted).
 | `dsr_nodicache` | No DirectInput state cache. | `hook_createdev` |
 | `dsr_nopool` | No event pool (CreateEventW / CloseHandle hooks). | `hook_events` |
 | `dsr_nogov` | No speed governor; tick fixed at 1/30. | agent loop |
+| `dsr_stockver` | Keep the stock title version lines. | `title.c:patch_version_text` |
 | `dsr_skip` | Pacer swap uses FrpgFlipper_30FPS instead of 30FPS_NoSkip. | `flip_chunk` |
 | `dsr_vt.go` | Pacer swap uses the logging vtable copy. | `flip_chunk` |
 | `dsr_flip.go` | Turns ON the flipper guard-page trace. | agent loop |

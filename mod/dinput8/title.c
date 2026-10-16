@@ -184,3 +184,38 @@ static void patch_offline_notice(void) {   /* agent thread, every tick until bot
     }
     if (n == 2) done = 1;
 }
+
+/* Title version lines (user 2026-10-16): "App ver. 1.03.1-mobile" and a new line "Modder: kbRadu" under the
+   regulation version. The title builder (0x1406935f8) shows FMG 401320 "App ver." + the global std::wstring at
+   0x141c84c58 (L"1.03.1") and FMG 401322 "Regulation ver." + the one at 0x141c84c88 (L" 1.04"). Layout (MSVC with
+   an allocator in front): +0 allocator, +8 buffer (inline when capacity < 8) or heap pointer, +0x18 size,
+   +0x20 capacity. The agent calls the game's own assign 0x1400bd1b0(this, ptr, len) so the longer text lives in
+   the game's allocator (freed normally at exit). Once, as soon as both hold the stock text (set at boot, before the
+   title list is built). DRB info_versionReg is two lines tall (patch_menu.py). Flag file dsr_stockver = keep. */
+typedef void *(*wassign_t)(void *self, const WCHAR *s, size_t n);
+static int wstr_is(uint8_t *ws, const WCHAR *s) {
+    size_t n = lstrlenW(s);
+    if (*(size_t *)(ws + 0x18) != n) return 0;
+    const WCHAR *b = *(size_t *)(ws + 0x20) >= 8 ? *(const WCHAR **)(ws + 8) : (const WCHAR *)(ws + 8);
+    return memcmp(b, s, n * 2) == 0;
+}
+static void patch_version_text(void) {   /* agent thread, every tick until done */
+    static int done, off = -1;
+    if (done) return;
+    if (off < 0) {
+        off = GetFileAttributesA("dsr_stockver") != INVALID_FILE_ATTRIBUTES;
+        if (off) { logmsg("version text: stock (flag)"); done = 1; return; }
+    }
+    static const struct { uint64_t ws; const WCHAR *from, *to; } v[] = {
+        { 0x141c84c58ULL, L"1.03.1", L"1.03.1-mobile" },
+        { 0x141c84c88ULL, L" 1.04", L" 1.04\nModder: kbRadu" },
+    };
+    wassign_t assign = (wassign_t)0x1400bd1b0ULL;
+    int n = 0;
+    for (int i = 0; i < 2; i++) {
+        uint8_t *ws = (uint8_t *)v[i].ws;
+        if (wstr_is(ws, v[i].to)) { n++; continue; }
+        if (wstr_is(ws, v[i].from)) { assign(ws, v[i].to, lstrlenW(v[i].to)); n++; logmsg("version text %d set", i + 1); }
+    }
+    if (n == 2) done = 1;
+}

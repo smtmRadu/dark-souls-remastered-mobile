@@ -70,10 +70,17 @@ static void menu_hud(void) {
     uint8_t *opts = gdm ? *(uint8_t * volatile *)(gdm + 0x58) : NULL;
     if (!opts) return;
     volatile uint8_t *hud = opts + 0x11;
-    int s13 = ms_get(0x13), sb1 = ms_get(0xb1);
-    int env = (s13 != 0 && s13 != 5) || (sb1 != 0 && sb1 != 5);
-    /* 0x9 = bonfire menu (2026-10-16): HUD hidden while resting too */
-    int menu = (ms_get(8) != 0 || ms_get(9) != 0 || ms_get(0x3b) != 0 || ms_get(0x42) != 0) && ms_get(0x2a) != 3 && !env;
+    int s13 = ms_get(0x13), sb1 = ms_get(0xb1), sb2 = ms_get(0xb2);   /* 0xb2 network settings */
+    int env = (s13 != 0 && s13 != 5) || (sb1 != 0 && sb1 != 5) || (sb2 != 0 && sb2 != 5);
+    /* 0x9 = talk-ESD menus (2026-10-16): 2 = bonfire (HUD hidden while resting), 4 = NPC talk (HUD kept) */
+    int s9 = ms_get(9);
+    /* 0x17 = Level Up screen (opened from the bonfire) */
+    /* station menus (re/ui/menu_ids.txt): 0x19 attune, 0x1a bottomless box, 0xb buy, 0xc repair, 0xd upgrade, 0x40 sell,
+       0x24 warp (attune statelog 2026-10-16: 0x9 2 -> 0, 0x19 0 -> 1 -> 2) */
+    static const int station[] = { 0x19, 0x1a, 0xb, 0xc, 0xd, 0x40, 0x24 };
+    int st = 0;
+    for (unsigned i = 0; i < sizeof station / sizeof station[0]; i++) st |= ms_get(station[i]) != 0;
+    int menu = (ms_get(8) != 0 || (s9 != 0 && s9 != 4) || ms_get(0x17) != 0 || st || ms_get(0x3b) != 0 || ms_get(0x42) != 0) && ms_get(0x2a) != 3 && !env;
     int want = menu ? 0 : 1;
     if (*hud != want) {
         if (want != last || *hud > 1) logmsg("menuhud: %d -> %d (8=%d 2a=%d 13=%d b1=%d)", *hud, want, ms_get(8), ms_get(0x2a), s13, sb1);

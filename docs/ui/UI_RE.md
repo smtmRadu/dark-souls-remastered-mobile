@@ -260,3 +260,24 @@ All edits are in `menu.drb.dcx`; output `tools/out/menu.drb.dcx`, pushed by `too
 - 2026-10-16 (user): R03-01 / R03-02 window 1.5x wide and 2x high (dialog scale in R03 around (641, 360): 341..941 × 244..477 → 191..1091 × 128..594). Buttons in child space 140..224 (84 units, x2.0 on screen = 168, 3x the first fix), 1.5x wide from the scale, text preset 1 (2.0x); message preset 2. Phone-tested (Quit Game box). Where: `tools/patch_menu.py` `R03_BUTTONS` / `R03_BIG`.
 - R09 and F05 are other boxes (not Quit Game). Finding a box: measure the screenshot (phone px / 1.5 − 240 = design x, phone y / 1.5 = design y) and match a dialog's placed rect.
 - **Bonfire menu** = MenuMan state 0x9. The app shows it as a menu (`MenuScreen.BONFIRE`: Back only, no gameplay controls), the agent hides the game HUD. The list looks like F04-01 (NPC talk menu) / F09-06, but scaling those and changing their font did nothing on the bonfire list: under investigation (`BONFIRE_MENU_RE.md`).
+
+## Bonfire / NPC talk list (F04-01), 2026-10-16
+
+- Drawn by `FrpgMenuDlgTalkMsgbox` on DRB dialog `F04-01`; details in `BONFIRE_MENU_RE.md`. `F09` is the warp list, not the bonfire list.
+- The first DRB edit seemed to do nothing: the phone test ran before the new file was pushed.
+- Layout now (`patch_menu.py`, `TALK_TOP/PITCH/H = 72/72/70`): rows 2.5x (30 → 72 units), font preset 2 (1.4x), alignment 0x08.
+- Frame `BG` 10..710. Its own 430x600 space: ornaments (`F04_bg`) moved to the edges, inner box (`F04_frame`) 101..476 → 26..574. 8 rows fit (longest bonfire list).
+- Hidden: divider texture `C05_masic_note_line` (30-unit pitch), scroll strip `F04_frame_PC`, `scrollbar`, `text_key-guide`.
+- Phone-checked. User kept the row height (no taller rows).
+
+## Splash dark mode (2026-10-16)
+
+- The boot logos are DRB `T08` → `logo_BNG` (sprite `s_01` + 4 MonoRects), `logo_from`, `logo_havok`. Textures: `Logo_01..04` in `menu_2` / `menu_4`.
+- Only the Bandai Namco texture (`Logo_02`) is white. `tools/dark_splash.py` edits its DXT1 blocks in place: all-background blocks → black, logo-edge blocks lose their white part, logo blocks stay. The white BANDAI NAMCO letters stay (enclosed white inside the yellow blob's box).
+- The side bars at 22:9 are MonoRects `logo_BNG object1..4`; `patch_menu.py` `MONO_COLOR` sets their colour (+0x18, RGBA) to black.
+
+## Title version lines (2026-10-16)
+
+- `T00-00` `info_versionApp` / `info_versionReg` are dynamic Text shapes. The title builder (`0x1406935f8`) writes FMG 401320 "App ver." + the global wstring at `0x141c84c58`, and FMG 401322 "Regulation ver." + the one at `0x141c84c88`.
+- The agent (`title.c:patch_version_text`) sets them to "1.03.1-mobile" and " 1.04\nModder: kbRadu" through the game's own assign.
+- Text shape byte +0x12 = line spacing. It is 0 on single-line shapes, so a `\n` drew line 2 over line 1. `patch_menu.py` `SHAPE_BYTES` sets 36 for `info_versionReg` and makes it 2 lines tall.

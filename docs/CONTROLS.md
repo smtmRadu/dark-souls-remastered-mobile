@@ -81,3 +81,35 @@ Edit `controls-6.icp` (copied over the profile on each launch), then rebuild.
 - Menu button, Interact pill, menu action buttons (Back / Status / Display): translucent fill + bronze rim, no parchment.
 - Phase debounce (2026-10-15 21:10): leaving LOADING must hold 500 ms (`DsrGameState.settle`, `LEAVE_LOADING_MS`). During loading screens the game briefly shows a player / ticking IGT / menu state, and the app flashed the controls and Back. Hidden blips are logged as `phase blip during LOADING`.
 - 2026-10-15 21:28: backstep icon = figure hopping back (stride, guard arm forward, speed lines, ground line); roll icon unchanged. Bottom slots: centres 0.423 / 0.5 / 0.577, scale 1.22. Interact pill: bronze outline grows 7 dp and fades every 1.8 s (`drawInteractPulse`, redraw ~30 FPS while the pill is up).
+
+## Cutscene skip (2026-10-16)
+
+- Detection: `DsrGameState.cutscene` = byte `[[0x141c71970]+0x150]` != 0 (RemoMan, real-time cutscene). Checked before the IGT stall test, so a cutscene stays GAMEPLAY.
+- Layer: all gameplay controls hidden; one round Skip button top right (radius 38 dp, 28 dp margin, hit radius x1.4).
+- Hold 2 s: bronze ring fills, centre shows the seconds left (2.0 .. 0.1). Release resets. Then one Start pulse.
+- Start / end of a cutscene releases all held input (`dsrReleaseAll`).
+- Not covered yet: Bink movies (opening / ending), which play without RemoMan.
+
+## Station menus and 2H state (2026-10-16 evening)
+- Attune Magic, Bottomless Box, shops, repair, upgrade and warp are menus: the app shows Back only, taps are clicks, the game HUD hides.
+- Title option pages (Options, Brightness, Sound, PC settings, Network settings) show Back plus big ◀ ▶, like the in-game Options. Network settings and Brightness use the PC-settings layout: bigger rows and a bigger OK / Defaults (`patch_menu.py` R16 / R17 / T07-00).
+- A tap clicks at least 130 ms after the touch-down hover, so the game takes the new hover first.
+- The 2H button icon is gold (the ring colour) while two-handing is on. Source: player arm style `ChrIns+0xb20` (2 / 3 = two-handed).
+
+## Level Up (2026-10-16)
+
+- Detection: MenuMan state `0x17` ≠ 0 → MENU, screen `LEVEL_UP`. The agent HUD lock treats it as a menu too.
+- App buttons, bottom right, bottom-up: **Accept** (corner), **Back**, wide **▼**, square **◀ ▶** side by side, wide **▲**.
+- ▲ ▼ = d-pad up / down (pick the stat). ◀ ▶ = d-pad left / right (stat − / +). Back = B.
+- Accept = mouse click on the game's ACCEPT hit rect (design (271, 599)). Marker binding `KEY_ENTER` in `dsrMenuActions`.
+- The game's own ACCEPT entry is hidden (`patch_menu.py`: C01-03 `text_param4`, `tex_line_0`); its hit rect `cursor1_0` is a 4-unit dot, so only the app's click reaches it.
+- Bonfire list (`BONFIRE`): no Back button, the list has its own Leave entry.
+
+## New Game / character creation (2026-10-16)
+
+- Detection: MenuMan state `0x26` (main, only with sub-step `0x1e` ≠ 0: 0x26 is also 1 on the boot logos), `0x25` (face edit), `0x27` (class select) → MENU, screen `CHAR_MAKE`. No player exists yet; before, the app read it as LOADING and showed nothing. The TITLE → MENU = LOADING rule skips `CHAR_MAKE`.
+- Layout: the creation window (DRB `T02` / `T03` children incl. the `BG` parchment) moves 230 units left (`patch_menu.py` `CHAR_SHIFT`). The right side holds app buttons, bottom-up: Back | Select, wide ▼, ◀ | ▶, wide ▲.
+- Name: state `0x1e` = 5 (name box) → the app presses OK after 450 ms; `0x1e` = 7 (typing) → the Android keyboard opens (`triggerShowKeyboard`); leaving 7 hides it. Enter confirms and moves to Sex.
+- Keys: in DSR mode `Keyboard.onKeyEvent` queues every key event ≥ 60 ms after the previous one (the game reads keys once a frame; fast keys were lost).
+- Movie: state `0x29` ≠ 0 → cutscene layer (Skip button). Hold 2 s = Start: skips the opening movie and real-time cutscenes. Tap, A, B, Esc and Enter do not skip.
+- After a cutscene / movie ends, the Skip-only layer stays 1.5 s (`CUTSCENE_HOLD_MS`) so the controls do not flash in the gap before loading.

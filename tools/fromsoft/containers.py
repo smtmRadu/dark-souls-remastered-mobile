@@ -64,6 +64,52 @@ def bnd3_read(buf):
     return files
 
 
+def _bnd3_layout(buf):
+    """Return (endian, fmt, entry_size, [(entry_pos, size_pos, off_pos, usize_pos)]) of a plain BND3."""
+    big = buf[0xd] != 0
+    fmt = _bnd3_format(buf[0xc], buf[0xe] != 0)
+    e = '>' if big or fmt & 1 else '<'
+    count, = struct.unpack_from(e + 'i', buf, 0x10)
+    esize = 12 + (4 if fmt & 0x10 else 0) + (4 if fmt & 2 else 0) + (4 if fmt & 0xc else 0) + (4 if fmt & 0x20 else 0)
+    slots = []
+    for i in range(count):
+        pos = 0x20 + i * esize
+        slots.append((pos, pos + 4, pos + 8, pos + esize - 4 if fmt & 0x20 else None))
+    return e, fmt, esize, slots
+
+
+def bnd3_write(plain, datas, align=16):
+    """Rebuild a plain (non-DCX) BND3: keep header, entry table and names byte-identical, replace the
+    entry data by `datas` (raw bytes, same order) and re-lay it out with `align` padding (zeros).
+    With unchanged datas this reproduces the original file for archives laid out that way (DS1 sfx bnds)."""
+    if plain[:4] != b'BND3':
+        raise ValueError('not BND3')
+    e, fmt, _esize, slots = _bnd3_layout(plain)
+    if fmt & 0x10:
+        raise ValueError('LongOffsets BND3 not supported')
+    if len(datas) != len(slots):
+        raise ValueError('entry count mismatch')
+    first = min(struct.unpack_from(e + 'I', plain, s[2])[0] for s in slots)
+    out = bytearray(plain[:first])
+    for (_pos, size_pos, off_pos, usize_pos), data in zip(slots, datas):
+        out += b'\0' * (-len(out) % align)
+        struct.pack_into(e + 'iI', out, size_pos, len(data), len(out))
+        if usize_pos is not None:
+            struct.pack_into(e + 'i', out, usize_pos, len(data))
+        out += data
+    return bytes(out)
+
+
+def bnd3_raw_entries(plain):
+    """Plain BND3 -> list of (id, name, raw_bytes) without decompressing nested DCX entries."""
+    e, _fmt, _esize, slots = _bnd3_layout(plain)
+    out = []
+    for (_pos, size_pos, _off_pos, _u), (fid, name, _d) in zip(slots, bnd3_read(plain)):
+        size, off = struct.unpack_from(e + 'iI', plain, size_pos)
+        out.append((fid, name, plain[off:off + size]))
+    return out
+
+
 def tpf_read(buf):
     """TPF (PC platform) -> list of (name, format, dds_bytes)."""
     buf = dcx_decompress(buf)

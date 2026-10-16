@@ -444,6 +444,7 @@ static DWORD WINAPI agent(LPVOID _) {
         pin_display();
         patch_title_text(t);
         patch_offline_notice();
+        patch_version_text();
         title_poll();
         static int gov_off; if (t % 20 == 0) gov_off = GetFileAttributesA("dsr_nogov") != INVALID_FILE_ATTRIBUTES;
         if (!gov_off) governor(); else { *(float *)TICK_DT = 1.0f / 30.0f; }

@@ -11,6 +11,6 @@ SAVE=$(adb shell run-as $P find files/imagefs_shared -name DRAKS0005.sl2 2>/dev/
 case "$1" in
   pull) adb exec-out run-as $P cat "$SAVE" > "$F" && md5sum "$F" && echo "pulled $SAVE";;
   push) adb shell am force-stop $P
-        adb push "$(cygpath -w "$F")" /data/local/tmp/dev.sl2 >/dev/null && adb shell run-as $P cp /data/local/tmp/dev.sl2 "$SAVE" && echo "pushed $F";;
+        adb push "$(cygpath -w "$F")" /data/local/tmp/dev.sl2 >/dev/null && adb shell "run-as $P cp /data/local/tmp/dev.sl2 '$SAVE'" && echo "pushed $F";;
   *) echo "usage: devsave.sh pull|push [NAME]"; exit 2;;
 esac

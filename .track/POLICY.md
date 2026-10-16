@@ -38,3 +38,4 @@
 - 2026-10-15: UI testing stays on the phone (Android emulator not viable: ARM64-only Box64/Wine; PC-game testing considered, user chose the phone).
 - 2026-10-15: The user's current save is the dev save for controls / menu work. Back it up with `tools/devsave.sh pull` and restore it with `devsave.sh push` after tests that change the save (New Game / cutscene tests use a separate save).
 - 2026-10-15: Never write the game's .text (anti-tamper kills the game ~2 s later). Change behaviour through .data / .rdata pointers (vtables, handler tables) instead.
+- 2026-10-16: Development loop = docs/DEV_PROCESS.md: batch edits, one restart, every feature verified with screenshots by Claude (user should not test each step by hand).

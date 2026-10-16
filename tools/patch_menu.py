@@ -52,14 +52,15 @@ for _i, _cx in enumerate(MENU_SLOTS):
 # Key settings (entry 2) hidden (user 2026-10-15: no key remapping on a phone): its text and hit rect go off-screen,
 # entries 3..5 move up one row (30 units). Entry i is still drawn in button<i>_0 and hit-tested on cursor<i>_0; a
 # d-pad step can still land on the hidden row (touch never does). Frame / parchment lose one row (SYS_TRIM).
-SYS_ROW_Y = [160, 191, None, 221, 251, 281]     # stock 160, 191, 221, 251, 281, 311
+SYS_ROW_Y = [160, 193, None, 226, 259, 292]     # stock 160, 191, 221, 251, 281, 311
+SYS_ROW_H = 31   # 2026-10-16: rows spread over the frame's empty bottom band (pitch 30 -> 33; 38 overran the frame)
 for _i, _y in enumerate(SYS_ROW_Y):
     if _y is None:
         EDITS[('I06-00', f'button{_i}_0')] = ((-2000, -2000, -1968, -1984), (-1, -1), 0, None)
         NULL_RECTS[('I06-00', f'cursor{_i}_0')] = (-2000, -2000, -1968, -1984)
         continue
-    EDITS[('I06-00', f'button{_i}_0')] = ((332, _y, 800, _y + 28), (-1, -1), 0, None)
-    NULL_RECTS[('I06-00', f'cursor{_i}_0')] = (327, _y, 800, _y + 28)
+    EDITS[('I06-00', f'button{_i}_0')] = ((332, _y, 800, _y + SYS_ROW_H), (-1, -1), 0, 0x08)   # text v-centred
+    NULL_RECTS[('I06-00', f'cursor{_i}_0')] = (327, _y, 800, _y + SYS_ROW_H)
 # System list (I06) and item command menu (I01-01): bigger by scaling the whole dialogs (DIALOG_SCALES below), so
 # frames, divider lines and highlight rects grow with the rows. (Moving rows one by one left the frame and divider
 # lines at the old spacing.)
@@ -103,6 +104,17 @@ RECTS[('F05-00', 'text_cancel')] = ((673, 627, 865, 659), 2)
 RECTS[('F05-00', 'R03_bg_2line')] = ((331, 562, 949, 703), None)
 RECTS[('F05-00', 'R03_note_line')] = ((-2000, -2000, -1968, -1984), None)
 
+# System list divider lines (parchment sprites F25_note_0 / note_line1) hidden: with the taller, re-spaced rows they
+# no longer sat between the rows (user 2026-10-16: "the background no longer matches the buttons").
+for _d in ('I06_parchment6r', 'I06_parchment5r', 'I06_parchment4r'):
+    for _n in ('F25_note_0', 'note_line1'):
+        RECTS[(_d, _n)] = ((-2000, -2000, -1968, -1984), None)
+# Bonfire overlay (F23_Bonfire: full-screen tint BG, dark band BG_bar + gradients, "BONFIRE LIT" text): the full-width
+# layers are 0..1280 wide, so at 22:9 the screen sides stayed uncovered (user 2026-10-16). Widened to -400..1680
+# (covers up to ~3.1:1); off-screen on 16:9, so harmless there.
+for _n, (_t, _b) in {'BG': (0, 720), 'BG_grad00': (283, 327), 'BG_grad01': (431, 475), 'BG_bar': (327, 431)}.items():
+    RECTS[('F23_Bonfire', _n)] = ((-400, _t, 1680, _b), None)
+
 # Question boxes (R03 family: "Are you sure you want to save the game and return to Title Menu?" = R03-02, OK /
 # CANCEL; R03-01 one button, R03-03 number entry, R03-11 / R03-12 big box). R09 and F05 were wrong guesses (user
 # 2026-10-16: still small). Buttons, their hit rects and the highlight (cursor dialog) 2x high around their middle,
@@ -142,7 +154,7 @@ SHIFTS = [
     ('F20-00', 'F20-02', HP_DX, HP_DY),                                   # humanity ring + counter
     ('F20-00', 'icon_state*', HP_DX, HP_DY + 118), ('F20-00', 'icon_broke_*', HP_DX, HP_DY + 118),
     # System list: greyed-out rows (Quit Game / Load Game at the title) follow their entries up one row
-    ('I06-00', 'grayout_loadgame3', 0, -30), ('I06-00', 'grayout_loadgame2', 0, -30),]
+    ('I06-00', 'grayout_loadgame3', 0, 259 - 281), ('I06-00', 'grayout_loadgame2', 0, 292 - 311),]
 
 # System list frame + parchment one row (30 units) shorter (Key settings hidden). The game ships 6 / 5 / 4 row
 # variants that differ exactly so: pieces below y 240 move up 30, pieces crossing it lose 30 at the bottom. The
@@ -158,6 +170,23 @@ def sys_trim(oname, r):
         return (l, t, rr, b - 30)
     return None
 
+
+# Brightness page (T07-00, user 2026-10-16: make the < > bigger). The slider row (cy 566) doubles in height, text
+# 1.4x; the < > pair (shared dialog R01_arrowlr) is drawn 1.3x wide / 2x high (arrows ~33 x 48 units, just outside
+# the bar); OK / Defaults move down 44 like the other option pages, 2x text, hit rects 48 high.
+RECTS[('T07-00', 'text_brightness')] = ((304, 538, 542, 594), 2)
+RECTS[('T07-00', 'button0_0')] = ((558, 538, 916, 594), 2)
+for _n in ('bar0_0', 'grayout_plate0'):
+    RECTS[('T07-00', _n)] = ((563, 542, 912, 590), None)
+RECTS[('T07-00', 'parame_plate00')] = ((552, 536, 924, 596), None)
+RECTS[('T07-00', 'arrow0_0')] = ((469, 542, 1015, 590), None)
+RECTS[('T07-00', 'text_apply')] = ((377, 624, 621, 668), 1)
+RECTS[('T07-00', 'text_reset')] = ((660, 624, 904, 668), 1)
+RECTS[('T07-00', 'Option_line_0')] = ((389, 663, 618, 670), None)
+RECTS[('T07-00', 'Option_line_2')] = ((665, 663, 894, 670), None)
+NULL_RECTS[('T07-00', 'cursor0_0')] = (297, 538, 552, 594)   # label cell (the highlight follows it)
+NULL_RECTS[('T07-00', 'cursor1_0')] = (377, 622, 621, 670)
+NULL_RECTS[('T07-00', 'cursor2_0')] = (660, 622, 904, 670)
 
 # Rules applied to every object (not Null shapes: their params are not a rect):
 # - in-game menus (inventory I*, equipment/status R*, system T07 ...) are anchored to the right edge: scaling origin
@@ -181,14 +210,73 @@ DIALOG_SCALES = {
     # item command menu (Use / Drop / Change order / Reset order): box + rows x1.4 around the box centre
     ('I01', 'I01-01'): ((1.5, 2.0), (640, 369)),   # rows 30 -> 60 units
 }
-# Bonfire menu / NPC talk choices (F04-01: up to 11 rows of 30 units on the left, frame 67..497 x 64..664): x1.4,
-# y1.6 around the rows' middle, 1.4x font (user 2026-10-16: bigger bonfire menu). The parchment runs past the screen
-# edges a little; the rows (191..519 -> 93..618) stay inside.
-DIALOG_SCALES[('F04', 'F04-01')] = ((1.4, 1.6), (67, 355))
-# The bonfire menu itself is F09 (frame BG + list F09-06, same geometry; F04-01 is the NPC talk menu, phone test
-# 2026-10-16: scaling F04-01 left the bonfire list unchanged)
-DIALOG_SCALES[('F09', 'BG')] = ((1.4, 1.6), (67, 355))
-DIALOG_SCALES[('F09', 'F09-06')] = ((1.4, 1.6), (67, 355))
+# Bonfire menu / NPC talk choices = F04-01 (FrpgMenuDlgTalkMsgbox, docs/ui/BONFIRE_MENU_RE.md; F09 is the warp list).
+# Stock: frame BG / F04_frame_PC 67..497 x 64..664 (own space 430x600), 11 rows of 30 units from y 191.
+# User 2026-10-16: rows 2.5x taller, frame ~1.1x taller. Rows 30 -> 72 units (text box 70, 1.4x font, centred
+# vertically). 8 rows (the longest bonfire list) need 576 units, so the frame grows to 10..710 (x1.17) and its
+# ornaments move to the edges of its own 430x600 space: the inner box (stock 101..476) becomes 26..574 = screen
+# 40..680. The row divider texture (C05_masic_note_line, stock 30-unit pitch) is hidden: it cannot match 72.
+# Rows 8..10 (only long NPC lists) run past the frame.
+TALK_TOP, TALK_PITCH, TALK_H = 72, 72, 70
+TALK_FRAME = (67, 10, 497, 710)
+RECTS[('F04-01', 'BG')] = (TALK_FRAME, None)
+# scroll strip (F04_frame_PC: arrows + bar) and the scroll thumb hidden (user 2026-10-16: lists fit, no scrolling)
+RECTS[('F04-01', 'F04_frame_PC')] = ((-2000, -2000, -1968, -1984), None)
+for _i in range(11):
+    _t = TALK_TOP + TALK_PITCH * _i
+    RECTS[('F04-01', f'button{_i}_0')] = ((138, _t, 483, _t + TALK_H), 2)
+    TEXT_ALIGN[('F04-01', f'button{_i}_0')] = 0x08
+    NULL_RECTS[('F04-01', f'cursor{_i}_0')] = (138, _t, 483, _t + TALK_H)
+    if _i < 5:
+        NULL_RECTS[('F04-01', f'grayout_drop{_i}')] = (138, _t, 483, _t + TALK_H)
+RECTS[('F04-01', 'scrollbar')] = ((-2000, -2000, -1968, -1984), None)
+RECTS[('F04-01', 'text_key-guide')] = ((-2000, -2000, -1968, -1984), None)
+# frame ornaments (F04_bg, own space 430x600): corners / bars to the edges
+for _n, _r in {'R03_bg_normal': (7, 0, 487, 600), 'F04_frame_3': (16, 2, 87, 79), 'F04_frame_4': (397, 2, 468, 79),
+               'object2': (87, 8, 397, 23), 'F04_frame_6': (17, 519, 92, 600), 'F04_frame_7': (394, 519, 469, 600),
+               'object3': (88, 578, 394, 593), 'object1': (24, 79, 39, 519), 'F04_frame_1': (446, 79, 461, 519)}.items():
+    RECTS[('F04_bg', _n)] = (_r, None)
+# inner box (F04_frame) and scroll strip (F04_frame_PC): stock 101..476 -> 26..574; small parts keep their size
+def _talk_inner(r):
+    l, t, rr, b = r
+    if b - t < 40:   # end pieces: shift with the nearer end
+        d = 26 - 101 if t < 290 else 574 - 476
+        return (l, t + d, rr, b + d)
+    k = (574 - 26) / (476 - 101)
+    return (l, round(26 + (t - 101) * k), rr, round(26 + (b - 101) * k))
+for _d, _parts in (('F04_frame', {'I01_simple_small_note_2': (68, 101, 420, 120), 'I01_simple_small_note_1': (68, 457, 420, 476),
+                                  'I01_simple_small_note_3': (60, 107, 79, 468), 'I01_simple_small_note_4': (408, 107, 427, 468)}),
+                   ('F04_frame_PC', {'I01_simple_small_note_2': (59, 101, 72, 120), 'I01_simple_small_note_1': (60, 457, 70, 476),
+                                     'I01_simple_small_note_3': (49, 106, 68, 468), 'I01_simple_small_note_4': (58, 113, 71, 132),
+                                     'scroll_>': (60, 110, 71, 121), 'scroll_>1': (60, 454, 71, 465),
+                                     'I01_simple_small_note_5': (60, 446, 70, 465), 'I01_simple_small_note_6': (60, 107, 79, 468)})):
+    for _n, _r in _parts.items():
+        RECTS[(_d, _n)] = (_talk_inner(_r), None)
+RECTS[('F04_frame', 'C05_masic_note_line')] = ((-2000, -2000, -1968, -1984), None)
+# Level Up (C01-03, placed at (96, 135) in C01): the game's ACCEPT entry (text_param4 + tex_line_0) hidden, the app has
+# its own Accept button (user 2026-10-16). Its hit rect cursor1_0 shrinks to a 4-unit dot at the entry's centre
+# (175, 464) = screen design (271, 599): only the app's Accept click lands there, the highlight bar is a dot.
+RECTS[('C01-03', 'text_param4')] = ((-2000, -2000, -1968, -1984), None)
+RECTS[('C01-03', 'tex_line_0')] = ((-2000, -2000, -1968, -1984), None)
+NULL_RECTS[('C01-03', 'cursor1_0')] = (173, 462, 177, 466)
+# Character creation (T02 main screen, T03 face edit): the window moves 230 units left (it spans ~52..1231 of the
+# centred 1280 space; the 22:9 screen starts at -240), so design x 1030..1520 on the right is free for the app's
+# Select / Back / d-pad buttons (user 2026-10-16). BG = the parchment window + header + portrait: moves too.
+CHAR_SHIFT = -230
+for _d, _n in (('T02', 'BG'), ('T02', 'T02-00'), ('T02', 'T02-01'), ('T02', 'T02-02'), ('T03', 'BG'),
+               *(('T03', _x) for _x in ('T03-01', 'T03_frame', 'T03-00', 'T03-02', 'T03-03', 'T03-05', 'T03-06',
+                                        'T03-07', 'T03-08', 'T03-04'))):
+    RECTS[(_d, _n)] = ((CHAR_SHIFT, -2 if _n == 'T03-04' else 0, 1280 + CHAR_SHIFT, 106 if _n == 'T03-04' else 720), None)
+# Bandai Namco splash dark mode (user 2026-10-16): the logo texture is recoloured by dark_splash.py; the four white
+# MonoRects around it (logo_BNG object1..4, the 22:9 side bars) become black. MonoRect params: rect, scale origin,
+# scale type, palette index (+0x10), unk, colour RGBA (+0x18, stock ff ff ff ff).
+MONO_COLOR = {('logo_BNG', f'object{_i}'): bytes((0, 0, 0, 255)) for _i in range(1, 5)}
+# Title version block: info_versionReg two lines tall for "Regulation ver. 1.04" + "Modder: kbRadu" (agent title.c
+# patch_version_text appends the second line; user 2026-10-16)
+RECTS[('T00-00', 'info_versionReg')] = ((96, 130, 596, 186), None)
+# Text shape byte +0x12 = line spacing (0 on single-line shapes: a 2nd line drew over the 1st; message boxes use
+# 0x1c).
+SHAPE_BYTES = {('T00-00', 'info_versionReg'): {0x12: 36}}   # 25 gave an 18-unit gap; 36 matches the 26-unit App -> Reg gap
 # Key settings (R13 controller / R15 keyboard tab): the list fills the screen height, so only x1.1 + bigger fonts
 for _r in ('R13', 'R15'):
     DIALOG_SCALES[(_r, f'{_r}-00')] = ((1.1, 1.1), (640, 384))
@@ -245,20 +333,25 @@ PC_ROWS = [190, 220, 250, 280, 340, 370, 400, 430]          # stock cursor<i>_0 
 PC_TOP, PC_STEP, PC_H = 146, 58, 50
 PC_LABEL = (130, 562)
 PC_HIDE = {('R14-00', 'text_key'), ('R14-00', 'text_sound'), ('R14_parchment', 'R01_frame')}
+# Network settings (R16 = 6 rows, R17 = 5 rows; same frame as PC settings, user 2026-10-16: OK small, no way out):
+# same treatment, rows 30 units apart from 190. page prefix -> stock row tops
+PC_PAGES = {'R14': PC_ROWS, 'R16': [190, 220, 250, 280, 309, 339], 'R17': [190, 220, 250, 280, 310]}
+PC_HIDE |= {('R16_parchment', 'R01_frame'), ('R17_parchment', 'R01_frame')}
 
 
 def pc_rect(dname, oname, stype, r):
     """New rect for a PC settings object, or None (not part of a row)."""
     if (dname, oname) in PC_HIDE:
         return OFF_SCREEN
+    rows = PC_PAGES[dname[:3]]
     l, t, rr, b = r
     cy = (t + b) / 2
     if 575 <= t <= 620:                       # Apply / Reset + their highlight and underline
         return (l, t + OPTION_FOOT_DY, rr, b + OPTION_FOOT_DY)
-    i = min(range(len(PC_ROWS)), key=lambda k: abs(PC_ROWS[k] + 14 - cy))
-    if abs(PC_ROWS[i] + 14 - cy) > 18 or b - t > 60:
+    i = min(range(len(rows)), key=lambda k: abs(rows[k] + 14 - cy))
+    if abs(rows[i] + 14 - cy) > 18 or b - t > 60:
         return None
-    ncy = PC_TOP + i * PC_STEP + PC_H / 2 + (cy - PC_ROWS[i] - 14) * 2
+    ncy = PC_TOP + i * PC_STEP + PC_H / 2 + (cy - rows[i] - 14) * 2
     h = (b - t) * 2 if stype in ('Text', 'Null', 'MonoRect') else b - t
     if stype in ('Null', 'MonoRect'):         # highlight / hit rect / greyed-out row: from the label cell
         l = PC_LABEL[0]
@@ -275,7 +368,8 @@ STRETCH_DOWN = {(d, s): 270 for d in ('I06_parchment6r', 'I06_parchment5r', 'I06
 # dialog: {stock font: new font} for every Text object in it. Presets 1 / 2 are unused by the stock menus; the agent
 # (mod/dinput8/title.c patch_fonts) makes them 2.0x / 1.4x (docs/ui/FONTS_RE.md). Font index != size order.
 FONT_BUMPS = {'I06-00': {7: 1}, 'I01-01': {8: 1}, 'R01-00': {7: 2, 9: 1}, 'R13-00': {6: 2}, 'R15-00': {6: 2},
-              'R14-00': {7: 2, 9: 1}, 'R14-01': {7: 2}, 'F04-01': {8: 2}, 'F09-06': {8: 2}}
+              'R14-00': {7: 2, 9: 1}, 'R14-01': {7: 2}, 'F04-01': {8: 2},
+              'R16-00': {7: 2, 9: 1}, 'R16-01': {7: 2}, 'R17-00': {7: 2, 9: 1}, 'R17-01': {7: 2}}
 FONT_BUMPS.update(FONT_BUMPS_R03)
 for _d in R03_BIG:   # R03-01 / R03-02 window 1.5x wide, 2x high around the screen centre (see R03_BIG)
     DIALOG_SCALES[('R03', _d)] = ((1.5, 2.0), (641, 360))
@@ -355,7 +449,7 @@ def patch(buf):
                 if nr:
                     struct.pack_into('<4h', buf, p, *nr)
                     options += 1
-            if (dname in ('R14-00', 'R14-01') or key in PC_HIDE) and key[1] not in ('text_help', 'cursor')                     and not key[1].startswith(('category_', 'text_key-guide')):
+            if (dname in ('R14-00', 'R14-01', 'R16-00', 'R16-01', 'R17-00', 'R17-01') or key in PC_HIDE) and key[1] not in ('text_help', 'cursor')                     and not key[1].startswith(('category_', 'text_key-guide')):
                 p = shpr0 + struct.unpack_from('<i', buf, shap0 + shap_off + 4)[0]
                 nr = pc_rect(dname, key[1], stype_name, struct.unpack_from('<4h', buf, p))
                 if nr:
@@ -380,6 +474,13 @@ def patch(buf):
                     buf[p + 0x1c] = font
                 if key in TEXT_ALIGN:
                     buf[p + 0x1e] = TEXT_ALIGN[key]
+            if key in SHAPE_BYTES:
+                p = shpr0 + struct.unpack_from('<i', buf, shap0 + shap_off + 4)[0]
+                for _o, _v in SHAPE_BYTES[key].items():
+                    buf[p + _o] = _v
+            if key in MONO_COLOR and stype_name == 'MonoRect':
+                p = shpr0 + struct.unpack_from('<i', buf, shap0 + shap_off + 4)[0]
+                buf[p + 0x18:p + 0x1c] = MONO_COLOR[key]
             if key in NULL_RECTS:          # Null shapes: rect only (the 8 bytes after it belong to the next shape)
                 p = shpr0 + struct.unpack_from('<i', buf, shap0 + shap_off + 4)[0]
                 struct.pack_into('<4h', buf, p, *NULL_RECTS[key])
