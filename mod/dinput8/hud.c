@@ -72,7 +72,8 @@ static void menu_hud(void) {
     volatile uint8_t *hud = opts + 0x11;
     int s13 = ms_get(0x13), sb1 = ms_get(0xb1);
     int env = (s13 != 0 && s13 != 5) || (sb1 != 0 && sb1 != 5);
-    int menu = (ms_get(8) != 0 || ms_get(0x3b) != 0 || ms_get(0x42) != 0) && ms_get(0x2a) != 3 && !env;
+    /* 0x9 = bonfire menu (2026-10-16): HUD hidden while resting too */
+    int menu = (ms_get(8) != 0 || ms_get(9) != 0 || ms_get(0x3b) != 0 || ms_get(0x42) != 0) && ms_get(0x2a) != 3 && !env;
     int want = menu ? 0 : 1;
     if (*hud != want) {
         if (want != last || *hud > 1) logmsg("menuhud: %d -> %d (8=%d 2a=%d 13=%d b1=%d)", *hud, want, ms_get(8), ms_get(0x2a), s13, sb1);

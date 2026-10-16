@@ -103,6 +103,28 @@ RECTS[('F05-00', 'text_cancel')] = ((673, 627, 865, 659), 2)
 RECTS[('F05-00', 'R03_bg_2line')] = ((331, 562, 949, 703), None)
 RECTS[('F05-00', 'R03_note_line')] = ((-2000, -2000, -1968, -1984), None)
 
+# Question boxes (R03 family: "Are you sure you want to save the game and return to Title Menu?" = R03-02, OK /
+# CANCEL; R03-01 one button, R03-03 number entry, R03-11 / R03-12 big box). R09 and F05 were wrong guesses (user
+# 2026-10-16: still small). Buttons, their hit rects and the highlight (cursor dialog) 2x high around their middle,
+# text 1.4x and centred (align 0x0a). Coordinates are in each box's own space (R03 places the boxes).
+R03_BUTTONS = {
+    'R03-01': [(174, 426, 184, 212)],
+    'R03-02': [(40, 292, 182, 210), (304, 556, 182, 210)],
+    'R03-03': [(107, 282, 213, 241), (302, 477, 213, 241)],
+    'R03-11': [(273, 525, 331, 359)],
+    'R03-12': [(103, 355, 333, 361), (422, 674, 334, 362)],
+}
+TEXT_ALIGN = {}
+for _d, _bs in R03_BUTTONS.items():
+    for _i, (_l, _r, _t, _b) in enumerate(_bs):
+        _c, _h = (_t + _b) / 2, _b - _t
+        _big = (_l, round(_c - _h), _r, round(_c + _h))
+        NULL_RECTS[(_d, f'cursor_button0_{_i}')] = _big
+        RECTS[(_d, f'text_button0_{_i}')] = (_big, 2)
+        TEXT_ALIGN[(_d, f'text_button0_{_i}')] = 0x0a
+        if _i == 0 and _d != 'R03-03':   # the highlight: button size (R03-03's cursor is the number field's)
+            RECTS[(_d, 'cursor')] = (_big, None)
+
 _OFF = (-2000, -2000, -1968, -1984)
 EDITS.update({(('T00-00', n)): (_OFF, (-1, -1), 0, None) for n in ('arrow_up', 'arrow_down', 'hide_top', 'hide_bottom')})
 
@@ -154,6 +176,14 @@ DIALOG_SCALES = {
     # item command menu (Use / Drop / Change order / Reset order): box + rows x1.4 around the box centre
     ('I01', 'I01-01'): ((1.5, 2.0), (640, 369)),   # rows 30 -> 60 units
 }
+# Bonfire menu / NPC talk choices (F04-01: up to 11 rows of 30 units on the left, frame 67..497 x 64..664): x1.4,
+# y1.6 around the rows' middle, 1.4x font (user 2026-10-16: bigger bonfire menu). The parchment runs past the screen
+# edges a little; the rows (191..519 -> 93..618) stay inside.
+DIALOG_SCALES[('F04', 'F04-01')] = ((1.4, 1.6), (67, 355))
+# The bonfire menu itself is F09 (frame BG + list F09-06, same geometry; F04-01 is the NPC talk menu, phone test
+# 2026-10-16: scaling F04-01 left the bonfire list unchanged)
+DIALOG_SCALES[('F09', 'BG')] = ((1.4, 1.6), (67, 355))
+DIALOG_SCALES[('F09', 'F09-06')] = ((1.4, 1.6), (67, 355))
 # Key settings (R13 controller / R15 keyboard tab): the list fills the screen height, so only x1.1 + bigger fonts
 for _r in ('R13', 'R15'):
     DIALOG_SCALES[(_r, f'{_r}-00')] = ((1.1, 1.1), (640, 384))
@@ -240,7 +270,7 @@ STRETCH_DOWN = {(d, s): 270 for d in ('I06_parchment6r', 'I06_parchment5r', 'I06
 # dialog: {stock font: new font} for every Text object in it. Presets 1 / 2 are unused by the stock menus; the agent
 # (mod/dinput8/title.c patch_fonts) makes them 2.0x / 1.4x (docs/ui/FONTS_RE.md). Font index != size order.
 FONT_BUMPS = {'I06-00': {7: 1}, 'I01-01': {8: 1}, 'R01-00': {7: 2, 9: 1}, 'R13-00': {6: 2}, 'R15-00': {6: 2},
-              'R14-00': {7: 2, 9: 1}, 'R14-01': {7: 2}}
+              'R14-00': {7: 2, 9: 1}, 'R14-01': {7: 2}, 'F04-01': {8: 2}, 'F09-06': {8: 2}}
 CENTRE_MENUS = True
 HIDE_KEY_GUIDE = True
 OFF_SCREEN = (-2000, -2000, -1968, -1984)
@@ -339,6 +369,8 @@ def patch(buf):
                 struct.pack_into('<4h', buf, p, *rect)
                 if font is not None and stype_name == 'Text':
                     buf[p + 0x1c] = font
+                if key in TEXT_ALIGN:
+                    buf[p + 0x1e] = TEXT_ALIGN[key]
             if key in NULL_RECTS:          # Null shapes: rect only (the 8 bytes after it belong to the next shape)
                 p = shpr0 + struct.unpack_from('<i', buf, shap0 + shap_off + 4)[0]
                 struct.pack_into('<4h', buf, p, *NULL_RECTS[key])

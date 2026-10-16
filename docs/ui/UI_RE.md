@@ -254,3 +254,8 @@ All edits are in `menu.drb.dcx`; output `tools/out/menu.drb.dcx`, pushed by `too
 - **R09-00** = the general message box (FrpgMenuDlgGeneral, MenuMan state 0x11): up to 9 message lines, up to 3 buttons. Used by "Quit game?" OK / Cancel and "Game will start in offline mode." OK. Buttons 80 units high (`cursor_button0_*` hit rects 500..580), text at preset 2, box bottom 573 -> 593.
 - `RECTS` in `patch_menu.py`: rect-only edits that keep origin and scaling type (plus an optional font).
 - Other dialogs with OK / Cancel rows, not changed: F05-00 (cursor_button Mask), F14_00, `yesno` (in T04, the message-writing screen).
+
+### Question boxes and bonfire (2026-10-16)
+- **R03** = the game's question boxes, placed by R03 (R03-02 at 341..941 × 244..477). R03-02 = 2 buttons ("Are you sure you want to save the game and return to Title Menu?" OK / CANCEL), R03-01 = 1 button, R03-03 = number entry, R03-11 / R03-12 = big box. Buttons, hit rects and the highlight `cursor` dialog are 2x high around their middle, text preset 2 and centred (`R03_BUTTONS` in `patch_menu.py`). Phone-tested.
+- R09 and F05 are other boxes (not Quit Game). Finding a box: measure the screenshot (phone px / 1.5 − 240 = design x, phone y / 1.5 = design y) and match a dialog's placed rect.
+- **Bonfire menu** = MenuMan state 0x9. The app shows it as a menu (`MenuScreen.BONFIRE`: Back only, no gameplay controls), the agent hides the game HUD. The list looks like F04-01 (NPC talk menu) / F09-06, but scaling those and changing their font did nothing on the bonfire list: under investigation (`BONFIRE_MENU_RE.md`).
