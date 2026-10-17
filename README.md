@@ -12,7 +12,7 @@ This repository contains no game files so you should get them yourself.
 
 [![Gameplay preview: click for the full video](docs/media/gameplay-preview.gif)](docs/media/gameplay.mp4)
 
-**[▶ Full gameplay video (2:18)](docs/media/gameplay.mp4)**: character creation, the intro, the Undead Asylum cell, the first fight and the first bonfire. Recorded on the phone, no sound.
+**[▶ Full gameplay video (2:18)](docs/media/gameplay.mp4)**
 
 ## Screenshots
 
