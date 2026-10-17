@@ -121,7 +121,7 @@ def patch_dds(dds):
 
 
 def main():
-    game = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, '..', 'Dark.Souls.Remastered.v1.04')
+    game = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, '..', 'local', 'game')
     dst = sys.argv[2] if len(sys.argv) > 2 else os.path.join(HERE, 'out', 'menu_2.tpf.dcx')
     raw = open(os.path.join(game, 'menu', 'menu_2.tpf.dcx'), 'rb').read()
     tpf = bytearray(dcx_decompress(raw))

@@ -7,7 +7,9 @@
      tab N            open tab N of the open bar (0 inventory, 1 equipment, 2 status, 3 system)
      closeall         state[0x88]=1
      tap X Y          mouse click at client pixel (forces KB/mouse mode, hooks GetCursorPos)
-     mouse 0|1        PadMan+0x68 (KB/mouse mode) */
+     mouse 0|1        PadMan+0x68 (KB/mouse mode)
+     souls N          DEV BUILDS ONLY (-DDSR_DEV, tools/build_agent.sh): player souls = N (PlayerGameData+0x94;
+                      +0x90 level, +0x98 soul memory). Test aid for Level Up; tools/give_souls.sh sends it */
 #define P_MENUMAN 0x141c88d98ULL
 #define P_PADMAN  0x141c6aea0ULL
 #define UI_AT(T, base, off) (*(T *)((uint8_t *)(base) + (off)))
@@ -68,6 +70,12 @@ static void ui_command(char *l) {
     else if (!strcmp(cmd, "set") && n == 3) ms_set(a, b);
     else if (!strcmp(cmd, "get") && n >= 2) logmsg("state[0x%x] = %d", a, ms_get(a));
     else if (!strcmp(cmd, "menubar")) { ms_set(0x7d, 1); ms_set(8, 7); }
+#ifdef DSR_DEV   /* test cheat: never in a release build (user 2026-10-17) */
+    else if (!strcmp(cmd, "souls") && n >= 2) {
+        uint8_t *gdm = ui_deref(0x141c8a530ULL), *pgd = gdm ? *(uint8_t * volatile *)(gdm + 0x10) : NULL;
+        if (pgd) { logmsg("souls %d -> %d", UI_AT(volatile int, pgd, 0x94), a); UI_AT(volatile int, pgd, 0x94) = a; }
+    }
+#endif
     else if (!strcmp(cmd, "tab") && n >= 2) {
         if (ms_get(8) != 8) { logmsg("tab: bar not open (state[8]=%d)", ms_get(8)); return; }
         ms_set(0x4b, a);

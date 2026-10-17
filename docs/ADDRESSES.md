@@ -3,11 +3,11 @@
 This file lists every game address and struct offset that the port reads or writes.
 Use it to find which address changes which game behaviour.
 
-- Exe: `DarkSoulsRemastered.exe` from `Dark.Souls.Remastered.v1.04/`. Code comments call the build "1.03.1" (regulation 1.04). It is the same file.
+- Exe: `DarkSoulsRemastered.exe` from `local/game/`. Code comments call the build "1.03.1" (regulation 1.04). It is the same file.
 - Image base: `0x140000000`. Box64 maps the exe 1:1, so all addresses are absolute.
 - Sections (from the PE header): `.text` 0x140001000-0x14129c400, `.rdata` 0x14129d000-0x141a24c00, `.data` 0x141a25000-0x141d0af78, `.idata` 0x142010000-0x142018c00, second `.text` (Arxan) 0x142019000-0x14319b000.
 - Writers: only the agent DLL (`mod/dinput8/*.c`, runs inside the game). The Android app (`DsrGameState.kt`) can only read (`/proc/<pid>/mem`, SELinux blocks writes).
-- Notation: `[X]` = read the 8-byte pointer at X. `R` = read, `W` = write. "Agent" = `mod/dinput8/`, "App" = `opennative-src/app/src/main/java/app/gamenative/dsr/`.
+- Notation: `[X]` = read the 8-byte pointer at X. `R` = read, `W` = write. "Agent" = `mod/dinput8/`, "App" = `local/opennative-src/app/src/main/java/app/gamenative/dsr/`.
 
 > **Rule: never write `.text`.** The anti-tamper kills the game about 2 s later (tested 2026-10-15, NOP of the offline-notice call). Change behaviour through `.data` / `.rdata` values, vtable slots, handler-pointer tables and heap objects. `.rdata` writes need `VirtualProtect(PAGE_READWRITE)` first. All current patches follow this rule.
 
@@ -62,7 +62,8 @@ Dialog vtable slot 16 (`vt+0x80`) = `Update(this, float dt)`. The agent swaps th
 | 0x15 | +0x84 | R; W 1 | App `poll` (≠0 = STATUS); Agent `ui.c` `tab 2` | In-game Status. 1 = open. |
 | 0xb2 | +0x2f8 | R | App `poll` (title sub-screen / option page, ≠0 and ≠5); Agent `hud.c:menu_hud` | Network settings (FrpgMenuDlgNetworkOption). 2 = open; 0 and 5 = closed (like 0xb1 PC settings). DRB R16 (6 rows) / R17 (5 rows). |
 | 0x17 | +0x8c | R | App `poll` (≠0 = LEVEL_UP); Agent `hud.c:menu_hud` (≠0 = menu) | Level Up screen (from the bonfire). 1 = opening, 2 = open (statelog 2026-10-16). |
-| 0x19, 0x1a, 0xb, 0xc, 0xd, 0x40, 0x24 | +0x94, +0x98, +0x5c, +0x60, +0x64, +0x130, +0xc0 | R | App `poll` (`STATION_IDS`, ≠0 = MENU, screen OTHER); Agent `hud.c:menu_hud` (≠0 = menu) | Station menus: attune magic, bottomless box, buy shop, repair, upgrade, sell shop, warp (`re/ui/menu_ids.txt`). Attune: 0x9 2 → 0, 0x19 0 → 1 → 2 (statelog 2026-10-16). |
+| 0x19, 0x1a, 0xb, 0xc, 0xd, 0x40, 0x24, 0xb4 | +0x94, +0x98, +0x5c, +0x60, +0x64, +0x130, +0xc0 | R | App `poll` (`STATION_IDS`, ≠0 = MENU, screen OTHER); Agent `hud.c:menu_hud` (≠0 = menu) | Station menus: attune magic, bottomless box, buy shop, repair, upgrade, sell shop, warp, covenant (0xb4: 3 = open) (`re/ui/menu_ids.txt`). Attune: 0x9 2 → 0, 0x19 0 → 1 → 2 (statelog 2026-10-16). |
+| `PGD+0x90` / `+0x94` / `+0x98` (i32) | R/W (dev) | Agent `ui.c` `souls N` (only `-DDSR_DEV`) | Soul level / souls / soul memory. Souls cap 999,999,999. |
 | 0x1d | +0xa4 | R | App `poll` (title sub-screen, notice check) | Saved-characters list (Load Game / Delete). 3 reload, 4 browsing, 5 load, 6 delete, 0 closed. |
 | 0x1e | +0xa8 | R | App `poll` (`charMakeStep`), `dsrCharMakeWatch` | Character creation sub-step: 2 browsing, 5 "Enter character name" box (app presses OK), 7 typing the name (app opens the keyboard). (statelog 2026-10-16) |
 | 0x25 | +0xc4 | R | App `poll` | Face edit (character creation). |
@@ -192,11 +193,12 @@ Modder: kbRadu". | After FMG 401322 "Regulation ver.". DRB `info_versionReg` is 
 
 | Address / offset | Section | R/W | Who | What it does / what changing it does | Notes |
 |---|---|---|---|---|---|
-| `0x1412ccc78` (float) | .rdata | W | Agent `patch_tick` (1/60 → 1/30, page left RW), `governor` (every 0.5 s), agent loop (`= 1/30` when governor off) | Logic tick length. Read once per frame at `0x14015cec9`, passed to every system. Governor: tick = real s / (ΔIGT / tick ms), EMA 0.5, clamp [1/60, 1/10] → game speed tracks real time. | Governor off: `dsr_nogov` (re-checked every 1 s). |
-| heap `FrpgFlipper` object `{vtable, flag byte}` (16 B) | heap | W vtable | Agent `flip_chunk` / `swap_flipper` (scan every 1 s until found, then every 10 s) | Objects whose vtable is `0x1412ab268` (FrpgFlipper_60FPS) get a new vtable: default `0x1412ea790` (30FPS_NoSkip, 1 logic tick per render). | `dsr_skip` → `0x1412ea688` (30FPS, skips render). `dsr_vt.go` → agent copy of the 30FPS vtable with logging slots 3 / 9. Note: a code comment says the pacer swap is off, but the agent loop still calls `swap_flipper()`. |
+| `0x1412ccc78` (float) | .rdata | W | Agent `patch_tick` (start 1/30, 1/60 with `dsr_fps60`; page left RW), `frame_slot9` (every frame), `governor` (fallback, every 0.5 s while `frame_slot9` is silent), agent loop (`= 1/30` when governor off) | Logic tick length. Read once per frame at `0x14015cec9`, passed to every system. **Per frame (2026-10-17):** tick = real time of the last frame, clamp [1/60, 1/10] → game speed = 1.00× at any FPS (measured: IGT 5.01–5.08 s per 5 s at 41–46 FPS). Governor fallback: tick = real s / (ΔIGT / tick ms), EMA 0.5. | `dsr_nofdt` = no per-frame tick (governor only). `dsr_nogov` = no governor. |
+| heap `FrpgFlipper` object `{vtable, flag byte}` (16 B) | heap | W vtable | Agent `flip_chunk` / `swap_flipper` (scan every 1 s until found, then every 10 s) | Objects whose vtable is `0x1412ab268` (FrpgFlipper_60FPS) get the agent's copy `ns_vt` of a NoSkip vtable (1 logic tick per render) with slot 9 → `frame_slot9`. Default 30FPS_NoSkip `0x1412ea790` (30 FPS cap, user 2026-10-17); `dsr_fps60` → 60FPS_NoSkip `0x1412ea7e8`. The stock 60FPS pacer ran 45 logic ticks for 30 renders (2026-10-17). | `dsr_skip` → `0x1412ea688` (30FPS, skips render). `dsr_vt.go` → logging copy of the 30FPS vtable (slots 3 / 9). |
 | `0x1412ab268` | .rdata vtable | R (match) | Agent `flip_chunk` | FrpgFlipper_60FPS (stock pacer). | |
 | `0x1412ea688` | .rdata vtable | R | Agent `flip_chunk`, `my_slot3/my_slot9` | FrpgFlipper_30FPS. Slot 3 / slot 9 called by the logging wrapper. | |
-| `0x1412ea790` | .rdata vtable | R | Agent `flip_chunk` | FrpgFlipper_30FPS_NoSkip (default target). | |
+| `0x1412ea790` | .rdata vtable | R | Agent `flip_chunk`, `frame_vt` (copied incl. RTTI locator at -8) | FrpgFlipper_30FPS_NoSkip (default target). Slot 9 (`0x1402052b0`) runs once per frame. | |
+| `0x1412ea7e8` | .rdata vtable | R | Agent `flip_chunk`, `frame_vt` | FrpgFlipper_60FPS_NoSkip (target with `dsr_fps60`). Slot 9 = `0x1402053c0`. | |
 | `0x1412ea400` (+0x20 mode, +0x28 flipper ptr) | .rdata vtable / heap | R | Agent `report_chunk` (not called) | Pacer manager task. Mode 4 = 60FPS; game re-applies it every frame. | `report()` is dead code: it can crash on false matches. |
 | `[0x141c77e88]+0x2c` (i32) | heap | W 4 | Agent `apply_lod` (every 1 s) | Characters updated at full rate (by distance). Stock 10. | `dsr_lod.txt` = "full near dist"; "-1 0 0" = stock. |
 | `[0x141c77e88]+0x30` (i32) | heap | W 8 | same | Characters counted as near; other off-screen ones get interval 5. Code comment: stock 20 (RE_NOTES lists 20 too). | |
@@ -285,6 +287,8 @@ Create the file to switch the patch off (unless noted).
 | `dsr_nogov` | No speed governor; tick fixed at 1/30. | agent loop |
 | `dsr_stockver` | Keep the stock title version lines. | `title.c:patch_version_text` |
 | `dsr_skip` | Pacer swap uses FrpgFlipper_30FPS instead of 30FPS_NoSkip. | `flip_chunk` |
+| `dsr_fps60` | 60FPS_NoSkip pacer, start tick 1/60 (also set the app frame limiter to 60 in the quick menu: the limiter is the actual cap, default 30). | agent start |
+| `dsr_nofdt` | No per-frame tick (`frame_slot9`); the 0.5 s governor sets the speed. | `frame_vt` |
 | `dsr_vt.go` | Pacer swap uses the logging vtable copy. | `flip_chunk` |
 | `dsr_flip.go` | Turns ON the flipper guard-page trace. | agent loop |
 | `dsr_prof.go` | Turns ON the profiler (content = seconds; file deleted). | `check_profile` |

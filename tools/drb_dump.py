@@ -12,7 +12,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 def main():
     prefix = sys.argv[1]
-    path = sys.argv[2] if len(sys.argv) > 2 else os.path.join(HERE, '..', 'Dark.Souls.Remastered.v1.04', 'menu', 'menu.drb.dcx')
+    path = sys.argv[2] if len(sys.argv) > 2 else os.path.join(HERE, '..', 'local', 'game', 'menu', 'menu.drb.dcx')
     buf = dcx_decompress(open(path, 'rb').read())
     ch = _chunks(buf)
     str0 = ch['STR'][0]

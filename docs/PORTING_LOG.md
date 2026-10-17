@@ -19,7 +19,7 @@ This file is the full record: what works, what failed, the mistakes, and how to 
 | FPS | ⚠️ 30 FPS (capped) on a cool phone; drops to ~14–20 FPS once the Flip6 throttles (see §4) |
 | Tap-on-enemy lock-on | ⏳ All memory pieces found (enemy list, camera, lock handle); not wired yet |
 
-Fork code: `opennative-src`, git branch `dsr`, **uncommitted** (29 files, +337/−30). Build: `./gradlew :app:assembleLegacyDebug` (JDK 17).
+Fork code: `local/opennative-src`, git branch `dsr`, **uncommitted** (29 files, +337/−30). Build: `./gradlew :app:assembleLegacyDebug` (JDK 17).
 
 ---
 
@@ -27,7 +27,7 @@ Fork code: `opennative-src`, git branch `dsr`, **uncommitted** (29 files, +337/�
 
 ### 2.1 Setup
 - Toolchain on the Legion: Temurin JDK 17+21, Android SDK/NDK 27.3, adb (winget), Ghidra 12.1.4 (`C:\Tools`), 7-Zip, MinGW-w64 + Tesseract + Wine 10 in WSL.
-- Game copy: `Dark.Souls.Remastered.v1.04/` (from `C:\Games\Dark Souls\...`), Goldberg Steam emulator kept (user decision: no Steam for now). ReShade/DLSS files removed (Nvidia-only).
+- Game copy: `local/game/` (from `C:\Games\Dark Souls\...`), Goldberg Steam emulator kept (user decision: no Steam for now). ReShade/DLSS files removed (Nvidia-only).
 - APK base chosen: **OpenNative** (GPL-3 GameNative fork: Wine/Proton, FEX/ARM64EC, Box64, DXVK, Turnip, single-game launch intent). Rejected: stock Winlator (user wants no Winlator UI), DroidDeck (full SteamOS container, too heavy), GameNative (Steam-centric).
 
 ### 2.2 Getting it to boot (the hard part)
@@ -120,7 +120,7 @@ Fork code: `opennative-src`, git branch `dsr`, **uncommitted** (29 files, +337/�
 | DsrGameState checked only the first line of `/proc/pid/maps` | attach never worked | Search all lines for the `140000000-` mapping |
 | Loaded the controls profile from the asset stream | zero elements (they load from the profiles dir) | Copy `controls-6.icp` to the profiles dir, then load from file |
 | A second XServer code path re-hid the overlay | controls never shown | DSR mode skips all generic show/hide paths |
-| Ran the game on the PC with the user's real save | PC save autosaved | Restored from `saves_backup/`; next time use a copy / separate profile |
+| Ran the game on the PC with the user's real save | PC save autosaved | Restored from `local/saves_backup/`; next time use a copy / separate profile |
 | Performance tests on a heat-soaked phone (3 h, on laptop USB) | misleading 14–16 FPS numbers | Benchmark only from a cool start; log real thermal zones |
 | Changed the user's Samsung performance profile without asking | — | Ask before changing phone settings (later user asked for max) |
 | Static RE through Arxan-obfuscated vtables for hours | slow | Trace at runtime from inside the game (agent VEH + guard page → call stack) first |
@@ -176,12 +176,12 @@ Full notes: `re/RE_NOTES.md`. Highlights:
 ## 8. Where things are
 | Path | What |
 |---|---|
-| `opennative-src/` (branch `dsr`) | APK source. Key new files: `app/gamenative/dsr/DsrLauncher.kt`, `DsrGameState.kt`, `assets/inputcontrols/profiles/controls-6.icp`, `assets/box86_64/box64-0.4.4-bionic.tzst`; DSR logic in `InputControlsView.java` |
+| `local/opennative-src/` (branch `dsr`) | APK source. Key new files: `app/gamenative/dsr/DsrLauncher.kt`, `DsrGameState.kt`, `assets/inputcontrols/profiles/controls-6.icp`, `assets/box86_64/box64-0.4.4-bionic.tzst`; DSR logic in `InputControlsView.java` |
 | `.track/` | Roadmap, policy (all decisions dated), milestone notes incl. `v0.2.0/opennative-code-map.md` |
 | `re/` | RE notes + cloned DSR-Gadget and Dark-Souls-1-Overhaul |
 | `tools/` | `bench.sh` (auto benchmark), `phone.py` (OCR driver, superseded), `pcgame.py` (PC memory reader/driver), RE scripts |
 | `design/` | Control proposals + final wanted controls |
-| `saves_backup/` | PC save backups (original + after-test copy) |
+| `local/saves_backup/` | PC save backups (original + after-test copy) |
 
 ## 2026-10-15 — MISTAKE: menu HUD hiding saved HUD OFF into the save
 - The agent forces the HUD option off in menus and restores it during the System "decide" step (state[0x2a] == 3).

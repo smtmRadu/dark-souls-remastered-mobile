@@ -3,7 +3,7 @@
 Source of truth: `design/final_wanted_controls.html` (rev 31, Galaxy Z Flip6).
 
 ## How it works
-- **Layout** = `opennative-src/app/src/main/assets/inputcontrols/profiles/controls-6.icp` (Winlator JSON). XServerScreen copies it to the profiles dir on each launch and loads it.
+- **Layout** = `local/opennative-src/app/src/main/assets/inputcontrols/profiles/controls-6.icp` (Winlator JSON). XServerScreen copies it to the profiles dir on each launch and loads it.
 - **Behaviour + drawing** = `app/gamenative/dsr/DsrTouchControls.java`. It reads the elements from the profile, draws them (Bone & Ash skin) and owns every gameplay touch.
 - **Glue** = DSR blocks in `com/winlator/widget/InputControlsView.java`:
   - Gameplay (`DsrGameState.isGameplay`): touches go to `DsrTouchControls`. The generic Winlator elements are not drawn.

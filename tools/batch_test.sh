@@ -11,7 +11,7 @@ tap() { adb shell input swipe "$1" "$2" "$1" "$2" 90; sleep "${3:-3}"; }
 shot() { python shot.py "bt_$1" 1400 >/dev/null; echo "shot bt_$1 (phase $(phase))"; }
 
 adb shell am force-stop $P
-[ "$1" = --no-install ] || adb install -r "$(cygpath -w ../opennative-src/app/build/outputs/apk/legacy/debug/app-legacy-debug.apk)" | tail -1
+[ "$1" = --no-install ] || adb install -r "$(cygpath -w ../local/opennative-src/app/build/outputs/apk/legacy/debug/app-legacy-debug.apk)" | tail -1
 adb push "$(cygpath -w out/menu.drb.dcx)" /data/local/tmp/menu.drb.dcx >/dev/null
 adb shell run-as $P cp /data/local/tmp/menu.drb.dcx $G/menu/menu.drb.dcx
 [ -f out/menu_2.tpf.dcx ] && adb push "$(cygpath -w out/menu_2.tpf.dcx)" /data/local/tmp/m2.dcx >/dev/null && adb shell run-as $P cp /data/local/tmp/m2.dcx $G/menu/menu_2.tpf.dcx   # dark splash (dark_splash.py)

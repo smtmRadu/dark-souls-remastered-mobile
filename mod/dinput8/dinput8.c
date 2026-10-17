@@ -13,12 +13,13 @@
 #define TICK_DT 0x1412ccc78ULL   /* .rdata float: logic tick length (1/60 stock) */
 #define VT_FLIPPER_30 0x1412ea688ULL
 #define VT_FLIPPER_30NS 0x1412ea790ULL   /* FrpgFlipper_30FPS_NoSkip: never skips rendering */
+#define VT_FLIPPER_60NS 0x1412ea7e8ULL   /* FrpgFlipper_60FPS_NoSkip */
 #define VT_FLIPPER_MGR 0x1412ea400ULL   /* task object: +0x20 mode (4 = 60FPS, 0 = 30FPS), +0x28 FrpgFlipper* */
 
 typedef HRESULT (WINAPI *DI8Create)(HINSTANCE, DWORD, REFIID, LPVOID *, LPUNKNOWN);
 static DI8Create real_create;
 static FILE *logf;
-static void patch_tick(void);
+static void patch_tick(int fps30);
 static void governor(void);
 static void ui_di_mouse_patch(uint8_t *b, DWORD size);
 
@@ -168,6 +169,37 @@ static void my_slot9(void *self, void *ctx) {
     }
     ((slot9_t)((uint64_t *)VT_FLIPPER_30)[9])(self, ctx);
 }
+/* Per-frame time step (user 2026-10-17: "45 fps but the timescale varies"). The governor re-tunes the tick every
+   0.5 s, so game speed followed every FPS swing in between. The live pacer gets our copy of the NoSkip vtable with
+   slot 9 wrapped: slot 9 runs once per frame (ctx = QPC stamps), and the wrapper sets [TICK_DT] = real time of the
+   last frame, clamped to [1/60, 1/10] s. NoSkip = exactly 1 logic tick per frame, so game time = real time.
+   frame_dt_at = last call (the governor stands by while frames arrive). Flag file dsr_nofdt = governor only. */
+static int flip_fps30;
+static uint64_t ns_vt[11];   /* [0] = RTTI locator, [1..10] = slots */
+static uint64_t ns_src;
+static volatile ULONGLONG frame_dt_at;
+static void frame_slot9(void *self, void *ctx) {
+    ((slot9_t)((uint64_t *)ns_src)[9])(self, ctx);
+    static LARGE_INTEGER f, last;
+    LARGE_INTEGER t; QueryPerformanceCounter(&t);
+    if (!f.QuadPart) QueryPerformanceFrequency(&f);
+    if (last.QuadPart) {
+        double dt = (double)(t.QuadPart - last.QuadPart) / f.QuadPart;
+        if (dt < 1.0 / 60) dt = 1.0 / 60;   /* the FPS cap is the app's frame limiter (30 default); the pacer does not wait out the tick */
+        if (dt > 1.0 / 10) dt = 1.0 / 10;
+        *(volatile float *)TICK_DT = (float)dt;
+    }
+    last = t;
+    frame_dt_at = GetTickCount64();
+}
+static uint64_t frame_vt(uint64_t src) {
+    if (GetFileAttributesA("dsr_nofdt") != INVALID_FILE_ATTRIBUTES) return src;
+    ns_src = src;
+    memcpy(ns_vt, (void *)(src - 8), sizeof ns_vt);
+    ns_vt[10] = (uint64_t)frame_slot9;   /* slot 9 */
+    return (uint64_t)&ns_vt[1];
+}
+
 /* Walk committed private RW memory in 64 KB chunks copied with ReadProcessMemory. Reading the regions directly
    crashed the game now and then: the game frees memory between VirtualQuery and the read (boot loading, every
    rescan). A copy of a freed region just fails. fn(chunk copy, its real address, qword count). */
@@ -202,9 +234,9 @@ static void flip_chunk(const uint64_t *q, uint64_t *real, size_t n) {
             vt = (uint64_t)my_vt;
         } else if (GetFileAttributesA("dsr_skip") != INVALID_FILE_ATTRIBUTES) vt = VT_FLIPPER_30;
         /* Default NoSkip: the skip variants run extra logic-only frames when rendering is slow
-           (measured 45 logic ticks/s for 30 renders/s). NoSkip = 1 tick per render; the speed
-           governor keeps real-time speed. */
-        else vt = VT_FLIPPER_30NS;
+           (measured 45 logic ticks/s for 30 renders/s, again 2026-10-17 with the 60FPS pacer). NoSkip = 1 tick
+           per render; the speed governor keeps real-time speed. */
+        else vt = frame_vt(flip_fps30 ? VT_FLIPPER_30NS : VT_FLIPPER_60NS);
         if (!WriteProcessMemory(GetCurrentProcess(), p, &vt, 8, NULL)) continue;
         flip_found++; flipper_obj = p;
         logmsg("flipper %p: 60FPS -> %llx", (void *)p, (unsigned long long)vt);
@@ -428,10 +460,15 @@ static void trace_flip(void) {
 
 static DWORD WINAPI agent(LPVOID _) {
     logmsg("agent start");
-    patch_tick();
-    /* Pacer experiments (2026-10-14) are off: swapping FrpgFlipper_60FPS -> 30FPS did not change game
-       speed, and the game re-applies mode 4 every frame. Kept for reference: swap_flipper(), report().
-       report() can crash the game: it dereferences p[5] of false vtable matches. */
+    int fps30 = GetFileAttributesA("dsr_fps60") == INVALID_FILE_ATTRIBUTES;   /* 30 FPS default (user 2026-10-17) */
+    flip_fps30 = fps30;
+    patch_tick(fps30);
+    /* Frame cap (user 2026-10-17: 60 FPS). swap_flipper() replaces the game's FrpgFlipper_60FPS with
+       FrpgFlipper_30FPS_NoSkip (30 FPS cap, no logic-only frames; user 2026-10-17 after the 60 FPS test: 33-46 FPS
+       with thermal throttling, uneven), or 60FPS_NoSkip with the flag file dsr_fps60.
+       The speed governor keeps game time = real time at any frame rate (tick clamped to 1/60 .. 1/10 s).
+       report() can crash the game: it dereferences p[5] of false vtable matches (kept for reference). */
+    logmsg("frame cap: %s", fps30 ? "30 FPS" : "60 FPS (dsr_fps60)");
     (void)report; (void)trace_igt;
     hook_input();
     hook_events();
@@ -463,11 +500,13 @@ static DWORD WINAPI agent(LPVOID _) {
    system); the FrpgFlipper pacer allows at most 2 ticks per rendered frame. DSR uses 1/60 -> needs 60 ticks/s
    for real-time speed. Patch to 1/30 (the original DS1 / Switch rate) + 30FPS pacer: one tick per frame at
    30 FPS (half the logic CPU), real-time speed down to 15 FPS. */
-static void patch_tick(void) {
+/* 2026-10-17 (60 FPS cap): the 60FPS pacer still paced frames to the 1/30 tick (FPS stayed 30.0 with the pacer
+   swap off): the start tick is 1/30 (1/60 with dsr_fps60); the governor below lengthens it if the phone is slower. */
+static void patch_tick(int fps30) {
     DWORD old;
     float *t = (float *)TICK_DT;
     if (!VirtualProtect(t, 4, PAGE_READWRITE, &old)) { logmsg("tick: VirtualProtect failed %lu", GetLastError()); return; }
-    float was = *t; *t = 1.0f / 30.0f;   /* page stays writable: the governor below retunes it */
+    float was = *t; *t = fps30 ? 1.0f / 30.0f : 1.0f / 60.0f;   /* page stays writable: the governor retunes it */
     logmsg("tick dt %f -> %f", was, *t);
 }
 
@@ -481,6 +520,7 @@ static void governor(void) {
     uint64_t gdm = *(volatile uint64_t *)GAME_DATA_MAN;
     if (!gdm) { have = 0; return; }
     uint32_t igt = *(volatile uint32_t *)(gdm + 0xa4);
+    if (GetTickCount64() - frame_dt_at < 500) { have = 0; return; }   /* per-frame dt active (frame_slot9) */
     LARGE_INTEGER t; QueryPerformanceCounter(&t);
     if (!f.QuadPart) QueryPerformanceFrequency(&f);
     if (have) {

@@ -4,7 +4,7 @@ State of the Dark Souls Remastered Android port and the next steps for the agent
 Read first: `.track/POLICY.md`, `.track/v0.2.0.md`, `docs/PORTING_LOG.md` §2.5, `re/RE_NOTES.md`, `docs/ui/UI_RE.md`, `docs/CONTROLS.md`.
 
 ## Rules (from the user)
-- **Private use only.** Play offline. Commit only when asked: branch `dsr` in `opennative-src/` is uncommitted.
+- **Private use only.** Play offline. Commit only when asked: branch `dsr` in `local/opennative-src/` is uncommitted.
 - **Ask before:**
   - git push;
   - destructive operations;
@@ -55,7 +55,7 @@ Read first: `.track/POLICY.md`, `.track/v0.2.0.md`, `docs/PORTING_LOG.md` §2.5,
 - Container env has SAFEFLAGS=0. `BOX64_DYNAREC_PERFMAP` was removed.
 - `adaptive_fast_charging` = 0 for tests. Restore it to 1 when the user wants.
 
-## App (`opennative-src`, branch `dsr`)
+## App (`local/opennative-src`, branch `dsr`)
 - `ContainerUtils.kt` DSR block: Box64 env incl. SAFEFLAGS=0 (added after the 20:52 APK, so not built yet).
 - `DsrLauncher.installAgent`: dev override.
 - **New touch controls** by the controls agent:

@@ -1,11 +1,11 @@
 #!/bin/bash
 # devsave.sh pull|push [NAME] : keep the development save (user 2026-10-15: the current save is the fixed save for
-# controls / menu work). pull = phone -> saves_backup/DRAKS0005.<NAME>.sl2 ; push = that file -> phone (game stopped).
+# controls / menu work). pull = phone -> local/saves_backup/DRAKS0005.<NAME>.sl2 ; push = that file -> phone (game stopped).
 # Default NAME: dev-controls. Phone path: the Wine prefix's Documents/NBGI/DARK SOULS REMASTERED/<steam id>/.
 export MSYS_NO_PATHCONV=1
 P=com.remipelloux.gamenativecustom
 D="$(cd "$(dirname "$0")/.." && pwd)"
-NAME=${2:-dev-controls}; F="$D/saves_backup/DRAKS0005.$NAME.sl2"
+NAME=${2:-dev-controls}; F="$D/local/saves_backup/DRAKS0005.$NAME.sl2"
 SAVE=$(adb shell run-as $P find files/imagefs_shared -name DRAKS0005.sl2 2>/dev/null | tr -d '\r' | head -1)
 [ -n "$SAVE" ] || { echo "save not found on phone"; exit 1; }
 case "$1" in

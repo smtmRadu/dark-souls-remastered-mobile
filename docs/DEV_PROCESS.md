@@ -7,9 +7,9 @@ The user reports issues. Claude fixes them, then tests them on the phone. Every 
 1. **Collect.** Put every reported issue on the roadmap (`.track/vX.md`, status `in_progress`).
 2. **Edit in a batch.** Fix all open items before you touch the phone. Never restart the app for one small edit.
 3. **Build everything once.**
-   - Agent DLL (`mod/dinput8`, mingw in WSL). Copy it to `opennative-src/app/src/main/assets/dsr/dinput8.dll`.
+   - Agent DLL: `tools/build_agent.sh` (mingw in WSL; copies it to the app assets). Default = dev build (`-DDSR_DEV`: test commands such as `souls N`). **Player builds: `tools/build_agent.sh --release`** (no cheats).
    - Menu layout: `python tools/patch_menu.py` → `tools/out/menu.drb.dcx`.
-   - APK: `./gradlew :app:assembleLegacyDebug` (JDK 17) in `opennative-src`.
+   - APK: `./gradlew :app:assembleLegacyDebug` (JDK 17) in `local/opennative-src`.
 4. **Check the phone temperature.** Battery must be < 42 °C (`adb shell dumpsys battery`). If it is hotter, wait.
 5. **Install, push, restart once.** Use `tools/batch_test.sh` or the same steps: install the APK, push `menu.drb.dcx`, force-stop, start.
 6. **Verify every item with a screenshot.**
@@ -20,6 +20,11 @@ The user reports issues. Claude fixes them, then tests them on the phone. Every 
 7. **Fix what failed.** Fix the remaining failures in the next batch. Do not do one-off restarts.
 8. **Report.** Give the user a short pass/fail list per item. Mention only what needs their eyes or hands.
 9. **Document.** Update the roadmap status, `docs/ADDRESSES.md` (every new address), and the topic doc (`docs/CONTROLS.md`, `docs/ui/UI_RE.md`, ...).
+
+## Test aids (dev builds only)
+
+- `tools/give_souls.sh [N]`: set the player's souls (default 999,999,999, the game cap). For Level Up tests.
+- `tools/record_session.sh NAME`: while the user plays, record app log, agent menu-state log, battery and screen video (`tools/out/rec_NAME/`).
 
 ## Rules
 

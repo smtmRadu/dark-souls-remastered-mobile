@@ -58,7 +58,7 @@ Known cosmetic exceptions (RT, low priority):
 
 ## 3. Runtime plan
 
-### 3.1 App (`opennative-src`), the main change
+### 3.1 App (`local/opennative-src`), the main change
 1. At launch, compute the internal size from the real display (landscape, full-screen view size including the cutout area):
    `H = 648 (Flip6) or 720 (default); W = round_to_even(H * viewW / viewH)`.
    - Flip6 2640x1080 -> **1584x648** (1.03 MP, +11% vs 1280x720).

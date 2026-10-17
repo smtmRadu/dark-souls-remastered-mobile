@@ -26,7 +26,7 @@ from fromsoft.data import paramdef_read, param_read, fmg_read
 from fromsoft.drb import drb_sprites
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-GAME = os.path.join(HERE, '..', 'Dark.Souls.Remastered.v1.04')
+GAME = os.path.join(HERE, '..', 'local', 'game')
 OUT = os.path.join(HERE, 'out', 'assets')
 
 # category -> (param file stem, name FMG, icon field(s))

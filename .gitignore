@@ -3,6 +3,8 @@
 !/.gitignore
 !/PLAN.md
 !/CLAUDE.md
+!/README.md
+!/app/
 !/.track/
 !/docs/
 !/mod/
@@ -24,3 +26,18 @@ __pycache__/
 !/re/RE_NOTES.md
 !/re/xref.py
 !/re/flipper_vtables.json
+
+# never: game files and saves (second net under the whitelist above)
+*.sl2
+*.sl2.*
+DRAKS*
+*.bdt
+*.bhd
+*.bnd
+*.tpf
+*.fmg
+*.drb
+/Dark.Souls*/
+/saves_backup/
+/archive/
+/local/

@@ -8,7 +8,7 @@ Each line = "rip ret1 ret2 ..." of the game's main thread. Prints:
 import bisect, collections, struct, sys
 import pefile
 
-EXE = "Dark.Souls.Remastered.v1.04/DarkSoulsRemastered.exe"
+EXE = "local/game/DarkSoulsRemastered.exe"
 NAMES = {  # known functions (re/RE_NOTES.md)
     0x14015ce90: "per-frame", 0x140137f30: "WinMain loop", 0x14024af10: "step manager", 0x14024f6b0: "InGameStep::Update",
     0x1402510d0: "ingame update", 0x14036e400: "WorldChrMan update", 0x14036f610: "chr dispatcher", 0x140758a30: "IGT update",

@@ -39,7 +39,7 @@ static void scan(uint64_t a, uint64_t b, const char *line) {
 int main(int c, char **v) {
     if (c < 4) { fprintf(stderr, "usage: memtool pid find|read|write|refs ...\n"); return 2; }
     int pid = atoi(v[1]); char p[64]; snprintf(p, sizeof p, "/proc/%d/mem", pid);
-    memfd = open(p, O_RDONLY); if (memfd < 0) { perror("mem"); return 1; }
+    memfd = open(p, strcmp(v[2], "write") ? O_RDONLY : O_RDWR); if (memfd < 0) { perror("mem"); return 1; }
     if (!strcmp(v[2], "find")) { lo = hi = strtoull(v[3], 0, 16); each_region(scan, pid); }
     else if (!strcmp(v[2], "refs")) { lo = strtoull(v[3], 0, 16); hi = strtoull(v[4], 0, 16); each_region(scan, pid); }
     else if (!strcmp(v[2], "read")) {

@@ -1,0 +1,3631 @@
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 19d675ac..85760415 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -68,7 +68,8 @@ android {
+     }
+ 
+     defaultConfig {
+-        applicationId = "com.remipelloux.gamenativecustom"
++        // converter template builds pass -PdsrAppId=<id> (own package, installs next to the dev app)
++        applicationId = (project.findProperty("dsrAppId") as String?) ?: "com.remipelloux.gamenativecustom"
+ 
+         minSdk = 26
+ 
+@@ -80,6 +81,8 @@ android {
+         versionName = "1.6.0"
+ 
+         buildConfigField("boolean", "GOLD", "false")
++        // Single-game Dark Souls Remastered build: boot straight into the game, no store UI.
++        buildConfigField("boolean", "DSR_MODE", "true")
+         buildConfigField("boolean", "SELF_UPDATE_ENABLED", "false")
+         fun secretLiteral(name: String, fallback: String = ""): String {
+             val raw = (project.findProperty(name) as String? ?: System.getenv(name) ?: "")
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index f6c13089..660529ac 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -108,6 +108,13 @@
+             android:exported="false"
+             android:theme="@style/Theme.Pluvia" />
+ 
++        <!-- DSR converter build: first-run game payload install (dsr/DsrInstallActivity) -->
++        <activity
++            android:name=".dsr.DsrInstallActivity"
++            android:exported="false"
++            android:screenOrientation="sensorLandscape"
++            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
++
+         <!-- Launcher icon aliases to allow switching app icon at runtime -->
+         <activity-alias
+             android:name=".MainActivityAliasDefault"
+diff --git a/app/src/main/assets/inputcontrols/profiles/controls-6.icp b/app/src/main/assets/inputcontrols/profiles/controls-6.icp
+new file mode 100644
+index 00000000..d154fae1
+--- /dev/null
++++ b/app/src/main/assets/inputcontrols/profiles/controls-6.icp
+@@ -0,0 +1 @@
++{"id": 6, "name": "Dark Souls", "cursorSpeed": 1, "elements": [{"type": "STICK", "shape": "CIRCLE", "bindings": ["GAMEPAD_LEFT_THUMB_UP", "GAMEPAD_LEFT_THUMB_RIGHT", "GAMEPAD_LEFT_THUMB_DOWN", "GAMEPAD_LEFT_THUMB_LEFT"], "scale": 1.023, "x": 0.125, "y": 0.7488, "toggleSwitch": false, "text": "", "iconId": 0}, {"type": "BUTTON", "shape": "CIRCLE", "bindings": ["GAMEPAD_BUTTON_R1", "NONE", "NONE", "NONE"], "scale": 1.95, "x": 0.8871, "y": 0.7783, "toggleSwitch": false, "text": "Attack", "iconId": 0}, {"type": "BUTTON", "shape": "CIRCLE", "bindings": ["GAMEPAD_BUTTON_B", "NONE", "NONE", "NONE"], "scale": 1.426, "x": 0.9385, "y": 0.512, "toggleSwitch": false, "text": "Roll", "iconId": 0}, {"type": "BUTTON", "shape": "CIRCLE", "bindings": ["GAMEPAD_BUTTON_L1", "NONE", "NONE", "NONE"], "scale": 1.426, "x": 0.762, "y": 0.8128, "toggleSwitch": false, "text": "Block", "iconId": 0}, {"type": "BUTTON", "shape": "CIRCLE", "bindings": ["GAMEPAD_BUTTON_Y", "NONE", "NONE", "NONE"], "scale": 1.074, "x": 0.808, "y": 0.125, "toggleSwitch": false, "text": "2H", "iconId": 0}, {"type": "BUTTON", "shape": "ROUND_RECT", "bindings": ["GAMEPAD_BUTTON_START", "NONE", "NONE", "NONE"], "scale": 1.611, "x": 0.905, "y": 0.125, "toggleSwitch": false, "text": "Menu", "iconId": 0}, {"type": "BUTTON", "shape": "SQUARE", "bindings": ["GAMEPAD_DPAD_DOWN", "NONE", "NONE", "NONE"], "scale": 1.801, "x": 0.125, "y": 0.2906, "toggleSwitch": false, "text": "Estus", "iconId": 0}, {"type": "BUTTON", "shape": "SQUARE", "bindings": ["GAMEPAD_DPAD_LEFT", "NONE", "NONE", "NONE"], "scale": 1.22, "x": 0.423, "y": 0.8768, "toggleSwitch": false, "text": "L-hand", "iconId": 0}, {"type": "BUTTON", "shape": "SQUARE", "bindings": ["GAMEPAD_DPAD_UP", "NONE", "NONE", "NONE"], "scale": 1.22, "x": 0.5, "y": 0.8768, "toggleSwitch": false, "text": "Spell", "iconId": 0}, {"type": "BUTTON", "shape": "SQUARE", "bindings": ["GAMEPAD_DPAD_RIGHT", "NONE", "NONE", "NONE"], "scale": 1.22, "x": 0.577, "y": 0.8768, "toggleSwitch": false, "text": "R-hand", "iconId": 0}, {"type": "BUTTON", "shape": "ROUND_RECT", "bindings": ["GAMEPAD_BUTTON_A", "NONE", "NONE", "NONE"], "scale": 1.228, "x": 0.5, "y": 0.8768, "toggleSwitch": false, "text": "Interact", "iconId": 0}]}
+\ No newline at end of file
+diff --git a/app/src/main/java/app/gamenative/MainActivity.kt b/app/src/main/java/app/gamenative/MainActivity.kt
+index 0cae2aa1..f9b83b92 100644
+--- a/app/src/main/java/app/gamenative/MainActivity.kt
++++ b/app/src/main/java/app/gamenative/MainActivity.kt
+@@ -40,6 +40,7 @@ import app.gamenative.mods.NexusDownloadLinkInbox
+ import app.gamenative.mods.NexusIntegrationStatus
+ import app.gamenative.mods.NexusPendingDownloadStore
+ import app.gamenative.ui.screen.library.appscreen.BaseAppScreen
++import app.gamenative.dsr.DsrLauncher
+ import app.gamenative.service.SteamService
+ import app.gamenative.service.gog.GOGService
+ import app.gamenative.service.epic.EpicService
+@@ -185,6 +186,13 @@ class MainActivity : ComponentActivity() {
+         )
+         super.onCreate(savedInstanceState)
+ 
++        // converter build, first start: unpack the game payload before anything touches the container
++        if (BuildConfig.DSR_MODE && app.gamenative.dsr.DsrInstaller.needsInstall(this)) {
++            startActivity(Intent(this, app.gamenative.dsr.DsrInstallActivity::class.java))
++            finish()
++            return
++        }
++
+         app.gamenative.launch.installLaunchReadiness(applicationContext, lifecycleScope)
+ 
+         if (isHeadset(this)) {
+@@ -214,6 +222,10 @@ class MainActivity : ComponentActivity() {
+         controllerInputManager?.registerInputDeviceListener(controllerDeviceListener, null)
+ 
+         ContainerUtils.setContainerDefaults(applicationContext)
++        if (BuildConfig.DSR_MODE) {
++            DsrLauncher.preferLowRefreshRate(this)
++            DsrLauncher.installAgent(this)
++        }
+ 
+         handleLaunchIntent(intent)
+ 
+@@ -358,6 +370,14 @@ class MainActivity : ComponentActivity() {
+                 wasLaunchedViaExternalIntent = false
+                 Timber.w("[IntentLaunch]: parseLaunchIntent returned null for LAUNCH_GAME intent")
+                 SnackbarManager.show(getString(R.string.intent_launch_failed))
++            } else if (BuildConfig.DSR_MODE && !isNewIntent) {
++                // single-game build: a normal app start boots straight into Dark Souls
++                DsrLauncher.clearQuitFlag(this)
++                DsrLauncher.fitScreen(this)
++                DsrLauncher.launchRequest(this)?.let { request ->
++                    setPendingLaunchRequest(request)
++                    Timber.i("[DSR]: Queued direct launch for ${request.appId}")
++                }
+             }
+         } catch (e: Exception) {
+             Timber.e(e, "[IntentLaunch]: Failed to handle launch intent")
+diff --git a/app/src/main/java/app/gamenative/PluviaApp.kt b/app/src/main/java/app/gamenative/PluviaApp.kt
+index a80569db..7d99d21c 100644
+--- a/app/src/main/java/app/gamenative/PluviaApp.kt
++++ b/app/src/main/java/app/gamenative/PluviaApp.kt
+@@ -109,7 +109,7 @@ class PluviaApp : SplitCompatApplication() {
+                 }
+             }
+         }
+-        appScope.launch {
++        if (!BuildConfig.DSR_MODE) appScope.launch {
+             runCatching {
+                 val created = ProviderDefaultTabs.seedIfEmpty(
+                     providerCatalog,
+diff --git a/app/src/main/java/app/gamenative/PrefManager.kt b/app/src/main/java/app/gamenative/PrefManager.kt
+index a34f801a..6edbc8db 100644
+--- a/app/src/main/java/app/gamenative/PrefManager.kt
++++ b/app/src/main/java/app/gamenative/PrefManager.kt
+@@ -381,14 +381,16 @@ object PrefManager {
+ 
+     private val SHOW_FPS = booleanPreferencesKey("show_fps")
+     var showFps: Boolean
+-        get() = getPref(SHOW_FPS, false)
++        // DSR: on by default, top-left (the game's HP bar moved right of the Estus slot, tools/patch_menu.py).
++        get() = getPref(SHOW_FPS, true)
+         set(value) {
+             setPref(SHOW_FPS, value)
+         }
+ 
+     private val PERFORMANCE_HUD_COMPACT_MODE = booleanPreferencesKey("performance_hud_compact_mode")
+     var performanceHudCompactMode: Boolean
+-        get() = getPref(PERFORMANCE_HUD_COMPACT_MODE, false)
++        // DSR: one line of metrics, fits above the Estus slot and the HP bar
++        get() = getPref(PERFORMANCE_HUD_COMPACT_MODE, true)
+         set(value) {
+             setPref(PERFORMANCE_HUD_COMPACT_MODE, value)
+         }
+diff --git a/app/src/main/java/app/gamenative/dsr/DsrAssets.kt b/app/src/main/java/app/gamenative/dsr/DsrAssets.kt
+new file mode 100644
+index 00000000..78c4bd9e
+--- /dev/null
++++ b/app/src/main/java/app/gamenative/dsr/DsrAssets.kt
+@@ -0,0 +1,77 @@
++package app.gamenative.dsr
++
++import android.content.Context
++import android.graphics.Bitmap
++import android.graphics.BitmapFactory
++import java.io.File
++import org.json.JSONObject
++import timber.log.Timber
++
++/**
++ * Game icons and names for the touch slots, extracted from the user's own game copy by
++ * tools/extract_assets.py into <game dir>/dsr_assets/ (items.json + icons/<iconId>.png). Never bundled in the APK.
++ * Missing assets = null; the controls then fall back to text labels.
++ */
++object DsrAssets {
++    const val WEAPON = "weapon"   // weapons and shields (EquipParamWeapon)
++    const val GOODS = "goods"     // quick items (EquipParamGoods)
++    const val MAGIC = "magic"
++
++    private var root: File? = null
++    private var items: JSONObject? = null
++    private var prompts: JSONObject? = null
++    private var loaded = false
++    private val icons = HashMap<Int, Bitmap?>()
++
++    fun init(context: Context) {
++        if (root != null) return
++        root = File(DsrLauncher.gameDir(context), "dsr_assets")
++        DsrGameState.gameDir = DsrLauncher.gameDir(context)
++        Thread({ table() }, "DsrAssets").start()   // parse items.json off the UI thread
++    }
++
++    /** Icon of item [id] in [category], or null. Upgraded weapons (id + level) fall back to the base id. */
++    fun icon(category: String, id: Int): Bitmap? {
++        val row = row(category, id) ?: return null
++        val iconId = row.optInt("icon", -1)
++        if (iconId < 0) return null
++        return icons.getOrPut(iconId) {
++            val f = File(root, "icons/$iconId.png")
++            if (f.isFile) BitmapFactory.decodeFile(f.path) else null
++        }
++    }
++
++    private val ui = HashMap<String, Bitmap?>()
++
++    /** Game HUD skin piece (tools/extract_assets.py UI_PIECES: slot_bg, lineframe, plate, parchment), or null. */
++    fun ui(name: String): Bitmap? = ui.getOrPut(name) {
++        val f = File(root ?: return null, "ui/$name.png")
++        if (f.isFile) BitmapFactory.decodeFile(f.path) else null
++    }
++
++    /** Interaction prompt text ("Pick up item", "Talk", ...) for a MenuMan+0x828 id, or null. */
++    fun prompt(id: Int): String? {
++        table()
++        return prompts?.optString(id.toString())?.takeIf { it.isNotEmpty() }
++    }
++
++    fun name(category: String, id: Int): String? = row(category, id)?.optString("name")?.takeIf { it.isNotEmpty() }
++
++    private fun row(category: String, id: Int): JSONObject? {
++        if (id < 0) return null
++        val cat = table()?.optJSONObject(category) ?: return null
++        return cat.optJSONObject(id.toString()) ?: if (category == WEAPON) cat.optJSONObject((id - id % 100).toString()) else null
++    }
++
++    @Synchronized
++    private fun table(): JSONObject? {
++        if (!loaded) {
++            loaded = true
++            items = runCatching { JSONObject(File(root, "items.json").readText()) }
++                .onFailure { Timber.tag("DsrAssets").i("No extracted assets (%s)", it.message) }
++                .getOrNull()
++            prompts = runCatching { JSONObject(File(root, "prompts.json").readText()) }.getOrNull()
++        }
++        return items
++    }
++}
+diff --git a/app/src/main/java/app/gamenative/dsr/DsrGameState.kt b/app/src/main/java/app/gamenative/dsr/DsrGameState.kt
+new file mode 100644
+index 00000000..6664084a
+--- /dev/null
++++ b/app/src/main/java/app/gamenative/dsr/DsrGameState.kt
+@@ -0,0 +1,467 @@
++package app.gamenative.dsr
++
++import java.io.File
++import java.io.RandomAccessFile
++import java.nio.ByteBuffer
++import java.nio.ByteOrder
++import timber.log.Timber
++
++/**
++ * Live Dark Souls Remastered game state, read straight from the game's memory.
++ *
++ * Box64 maps the x86 image 1:1, so DarkSoulsRemastered.exe sits at 0x140000000 like on Windows,
++ * and the app (same uid) can read it through /proc/<pid>/mem. Offsets: re/RE_NOTES.md
++ * (exe 1.03.1 = the build Dark-Souls-1-Overhaul targets).
++ */
++object DsrGameState {
++    enum class Phase { NOT_RUNNING, TITLE, LOADING, MENU, GAMEPLAY }
++
++    private const val IMAGE_BASE = 0x140000000L
++    private const val WORLD_CHR_MAN = IMAGE_BASE + 0x1c77e50
++    private const val MENU_MAN = IMAGE_BASE + 0x1c88d98
++    private const val GAME_DATA_MAN = IMAGE_BASE + 0x1c8a530
++    private const val LOCK_TGT_MAN = IMAGE_BASE + 0x1c7a138
++    private const val RENDER_SIZE = IMAGE_BASE + 0x1b68ec8
++    /** RemoMan* (real-time cutscene player). Byte +0x150 = a cutscene plays (getter 0x1404917b0, used by the
++     *  debug event test EcTestRemoPlaying, vtable 0x141400950). docs/ADDRESSES.md */
++    private const val REMO_MAN = IMAGE_BASE + 0x1c71970
++    private val STATION_IDS = intArrayOf(0x19, 0x1a, 0xb, 0xc, 0xd, 0x40, 0x24, 0xb4)   // 0xb4 covenant (3 = open)
++    /** In-game time stops on loading screens: no IGT tick for this long = still loading. */
++    private const val IGT_STALL_MS = 300L
++    private const val LEAVE_LOADING_MS = 500L
++    private const val POLL_MS = 50L   // menu layer switch latency (was 100: menus felt laggy)
++
++    @Volatile var phase: Phase = Phase.NOT_RUNNING
++        private set
++
++    /**
++     * The game's first general dialog of a run is always the "Game will start in offline mode." notice
++     * (Goldberg = no Steam login; the network "Start Offline" setting does not remove it). The app answers it
++     * with A. General dialog = MenuMan state slot 0x11 (+0x74) = 1. One A 400 ms after it appeared was not
++     * always taken (the box fades in; user 2026-10-15: "still appears"): the app now presses A every 700 ms while
++     * this first dialog is up (startupNoticeUp), at most 8 times.
++     */
++    @Volatile var startupNoticeUp = false
++        private set
++    private var startupNoticeDone = false
++
++    /**
++     * Map-action prompt id ("press to pick up / open / talk ..."), MenuMan+0x828 (e.g. 0x98bdf7 = pick up item);
++     * > 0 while the game offers an interaction (FrpgMenuDlgMapAction 0x1406802b0 shows it when this is > 0 and no
++     * item-get popup is up). 1 while the item-get popup is up.
++     */
++    @Volatile var actionPrompt: Int = -1
++        private set
++    /** NPC conversation running (MenuMan 0x9 == 4): the Interact pill reads "Next", a free tap presses A. */
++    @Volatile var talking = false
++        private set
++    /** Character creation sub-step, MenuMan state 0x1e (statelog 2026-10-16): 2 browsing, 5 name box, 7 typing the name. */
++    @Volatile var charMakeStep = 0
++        private set
++    /** A real-time cutscene (remo) or a Bink movie plays: the touch layer shows only the hold-to-skip button. */
++    @Volatile var cutscene = false
++        private set
++    /** actionPrompt value while talking (no game prompt id is this large). */
++    const val TALK_PROMPT = 0x7fff0001
++
++    /** What the slots show. Ids are param row ids (-1 = empty); counts are inventory quantities / casts left. */
++    /** style = player ChrIns+0xb20: 1 one-handed, 3 right weapon two-handed, 2 left weapon two-handed (2H diff). */
++    data class Loadout(val left: Int, val right: Int, val spell: Int, val spellCasts: Int, val quick: Int, val quickCount: Int, val style: Int) {
++        val twoHanded: Int get() = when (style) { 3 -> right; 2 -> left; else -> -1 }
++    }
++
++    /** Tab = index in the game's tab bar (DRB R00-00 icons), -1 = not a tab screen. */
++    enum class MenuScreen(val tab: Int) { OTHER(-1), BAR(-1), INVENTORY(0), EQUIPMENT(1), STATUS(2), SYSTEM(3), OPTIONS(3), BONFIRE(-1), LEVEL_UP(-1), CHAR_MAKE(-1) }
++    /** Open in-game menu screen (MENU phase), for the app's action buttons. */
++    @Volatile var menuScreen = MenuScreen.OTHER
++
++    /** TITLE phase: a sub-screen (Load Game, options, character creation, yes/no) is open, so Back is useful. */
++    @Volatile var titleSubScreen = false
++    /** Title sub-screen is a page with value rows (Options 0x13, Brightness 0x3b, Sound 0x42, PC 0xb1, Network 0xb2):
++     *  the app adds big ◀ ▶ buttons next to Back. */
++    @Volatile var titleOptionPage = false
++        private set
++
++    @Volatile var loadout: Loadout? = null
++        private set
++
++    /** Game folder (set by DsrAssets.init): agent files dsr_title_dlg.txt / dsr_title.txt live there. */
++    @Volatile var gameDir: File? = null
++    private var titleDlgStamp = 0L
++    private var titleDlg = 0L
++
++    /**
++     * Main-menu list shown (vs the "TOUCH TO START" screen): FrpgMenuDlgTitle bytes +0x254 and +0x255 both 1 (the
++     * Update shows the entries only then; both 0 on the start screen). The agent (mod/dinput8/title.c)
++     * publishes the dialog address in dsr_title_dlg.txt.
++     */
++    fun titleListShown(): Boolean {
++        val f = File(gameDir ?: return false, "dsr_title_dlg.txt")
++        val stamp = f.lastModified()
++        if (stamp != titleDlgStamp) {
++            titleDlgStamp = stamp
++            titleDlg = runCatching { f.readText().trim().toLong(16) }.getOrDefault(0L)
++            Timber.tag("DSR").i("title dialog %x (file %d)", titleDlg, stamp)
++        }
++        if (titleDlg == 0L) return false
++        return runCatching { i32(titleDlg + 0x254) and 0xffff == 0x0101 }.getOrDefault(false)
++    }
++
++    /** The agent moved the title highlight to the picked entry (dsr_title_ack.txt, consumed here): press A now. */
++    fun titleAcked(): Boolean {
++        val f = File(gameDir ?: return false, "dsr_title_ack.txt")
++        return f.exists() && f.delete()
++    }
++
++    /** Ask the agent to highlight main-menu entry [k]; press A after [titleAcked]. */
++    fun pickTitleEntry(k: Int) {
++        val dir = gameDir ?: return
++        File(dir, "dsr_title_ack.txt").delete()
++        runCatching {
++            val tmp = File(dir, "dsr_title.tmp")
++            tmp.writeText("$k\n")
++            tmp.renameTo(File(dir, "dsr_title.txt"))
++        }
++    }
++
++    /** Filled quick-item slots (PGD+0x438, 5 inventory indexes, -1 = empty). */
++    @Volatile var quickSlots: Int = 1
++        private set
++
++    /** One lock-on candidate (LockTgtMan list, docs/LOCKON.md §1.1): lock point address + owner handle key it. */
++    class LockCandidate(val lockPoint: Long, val handle: Int, val x: Float, val y: Float, val z: Float, val flags: Int)
++
++    /** Lock-on snapshot: candidates, camera world matrix (16) + fovY/aspect/near/far, render size, locked state. */
++    class LockScan(val candidates: List<LockCandidate>, val cam: FloatArray, val w: Float, val h: Float, val locked: Boolean)
++
++    @Volatile var lockScan: LockScan? = null
++        private set
++
++    /** Touch controls are drawn and own the touches only in gameplay. */
++    val isGameplay: Boolean get() = phase == Phase.GAMEPLAY
++
++    private var thread: Thread? = null
++    private var mem: RandomAccessFile? = null
++    private var pid = -1
++    private val buf = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN)
++    private var lastIgt = -1
++    private var cutsceneLogged = false
++    private var lastCutsceneAt = 0L
++    private const val CUTSCENE_HOLD_MS = 1500L
++    private var lastIgtTickMs = 0L
++
++    fun start() {
++        if (thread?.isAlive == true) return
++        thread = Thread({
++            while (!Thread.currentThread().isInterrupted) {
++                var raw = runCatching { poll() }.getOrElse { Phase.NOT_RUNNING.also { close() } }
++                // after a cutscene / movie ends (or is skipped) the game passes a short gap (char-make menu, a player
++                // frame) before loading: keep the Skip-only layer CUTSCENE_HOLD_MS so controls do not flash (user 2026-10-16)
++                val nowMs = System.currentTimeMillis()
++                if (cutscene) lastCutsceneAt = nowMs
++                else if (raw != Phase.NOT_RUNNING && raw != Phase.TITLE && nowMs - lastCutsceneAt < CUTSCENE_HOLD_MS) {
++                    cutscene = true; raw = Phase.GAMEPLAY
++                }
++                val next = settle(raw)
++                if (next != phase) Timber.tag("DSR").i("phase %s -> %s", phase, next)
++                phase = next
++                if (next != Phase.LOADING) lastNonLoading = next
++                runCatching { DsrGpuGovernor.tick(next) }
++                try { Thread.sleep(POLL_MS) } catch (e: InterruptedException) { break }
++            }
++            close()
++        }, "DsrGameState").apply { isDaemon = true; start() }
++    }
++
++    fun stop() {
++        thread?.interrupt()
++        thread = null
++        phase = Phase.NOT_RUNNING
++    }
++
++    /**
++     * Leaving LOADING must hold for LEAVE_LOADING_MS: during a loading screen the game shows a player or a ticking
++     * IGT (or a menu state) for one or two polls, and the app flashed the touch controls / Back (user 2026-10-15).
++     * Entering LOADING and every other change stay immediate.
++     */
++    private var pendingPhase: Phase? = null
++    private var lastNonLoading = Phase.NOT_RUNNING
++    private var pendingSince = 0L
++    private fun settle(raw: Phase): Phase {
++        // TITLE -> MENU happens only while a save loads (Continue / Load Game: MENU for ~2 s, Back flashed). The
++        // in-game menu cannot open from the title, so that is LOADING (log 2026-10-15 21:22)
++        if (raw == Phase.MENU && menuScreen != MenuScreen.CHAR_MAKE && (phase == Phase.TITLE || phase == Phase.LOADING && pendingPhase == null && lastNonLoading == Phase.TITLE)) {
++            return Phase.LOADING
++        }
++        if (phase != Phase.LOADING || raw == Phase.LOADING || raw == Phase.NOT_RUNNING) {
++            if (raw == Phase.LOADING && pendingPhase != null)
++                Timber.tag("DSR").i("phase blip during LOADING: %s for %d ms (hidden)", pendingPhase, System.currentTimeMillis() - pendingSince)
++            pendingPhase = null
++            return raw
++        }
++        val now = System.currentTimeMillis()
++        if (raw != pendingPhase) {
++            pendingPhase = raw; pendingSince = now
++        }
++        if (now - pendingSince < LEAVE_LOADING_MS) return Phase.LOADING
++        pendingPhase = null
++        return raw
++    }
++
++    private fun poll(): Phase {
++        cutscene = false
++        if (mem == null && !attach()) return Phase.NOT_RUNNING
++        val menuMan = u64(MENU_MAN)
++        if (menuMan == 0L) return Phase.LOADING
++        if (!startupNoticeDone) {
++            // only on the bare title screen: the agent now removes the notice (title.c patch_offline_notice), so the
++            // first general dialog of a run can be a real question (Quit Game, Load Game delete) that A would confirm
++            val titleBare = i32(menuMan + 0x80) == 1 &&
++                intArrayOf(0x1d, 0x2a, 0x13, 0x3b, 0x42, 0x25, 0x27).none { i32(menuMan + 0x30 + 4 * it) != 0 }
++            val up = titleBare && i32(menuMan + 0x74) == 1
++            if (up && !startupNoticeUp) Timber.tag("DSR").i("startup notice up")
++            if (!up && startupNoticeUp) { startupNoticeDone = true; Timber.tag("DSR").i("startup notice closed") }
++            startupNoticeUp = up
++        }
++        if (i32(menuMan + 0x80) == 1) {
++            // a title sub-screen that needs Back (re/ui/menu_ids.txt): 0x1d Load Game, 0x2a System, 0x13/0x3b/0x42 option pages,
++            // 0x25 face edit, 0x27 class select, 0x11 yes/no box. The plain title list and "Touch to Start" do not.
++            // 0xb1 PC settings / 0xb2 network settings (2 = open; 0 and 5 = closed, user 2026-10-16: no Back, OK dead)
++            titleSubScreen = intArrayOf(0x1d, 0x2a, 0x13, 0x3b, 0x42, 0x25, 0x27, 0x11).any { i32(menuMan + 0x30 + 4 * it) != 0 } ||
++                intArrayOf(0xb1, 0xb2).any { i32(menuMan + 0x30 + 4 * it).let { v -> v != 0 && v != 5 } }
++            titleOptionPage = intArrayOf(0x13, 0xb1, 0xb2).any { i32(menuMan + 0x30 + 4 * it).let { v -> v != 0 && v != 5 } } ||
++                intArrayOf(0x3b, 0x42).any { i32(menuMan + 0x30 + 4 * it) != 0 }
++            return Phase.TITLE
++        }
++        // option pages (0x13 EnvOption, 0x3b DispOption, 0x42 SoundOption) clear state[8] when opened from System
++        // 0xb1 PcOption (PC settings). 0x13 stays 5 after PC settings closes (statelog 2026-10-15): 5 = closed too
++        val s13 = i32(menuMan + 0x30 + 4 * 0x13)
++        val sB1 = i32(menuMan + 0x30 + 4 * 0xb1)
++        val sB2 = i32(menuMan + 0x30 + 4 * 0xb2)   // network settings, same values as 0xb1
++        val optionPage = (s13 != 0 && s13 != 5) || i32(menuMan + 0x30 + 4 * 0x3b) != 0 ||
++            i32(menuMan + 0x30 + 4 * 0x42) != 0 || (sB1 != 0 && sB1 != 5) || (sB2 != 0 && sB2 != 5)
++        // 0x9 = talk-ESD menus (statelog 2026-10-16): 2 = bonfire (Level Up / Kindle ... list) = a menu screen
++        // (gameplay controls hidden, Back shown). 4 = NPC conversation (0x93 = 1 while the subtitle box is up): stays
++        // GAMEPLAY, the player can still walk / fight (user: the stick must stay; as a MENU, taps became mouse clicks
++        // = attacks, swipes became d-pad = weapon swaps, Back = B = backstep). `talking` makes a free tap press A.
++        val s9 = i32(menuMan + 0x30 + 4 * 0x9)
++        talking = s9 == 4
++        val bonfire = s9 != 0 && s9 != 4
++        // 0x17 = Level Up screen (opened from the bonfire list; statelog 2026-10-16: 0x9 2 -> 0, 0x17 0 -> 1 -> 2)
++        val levelUp = i32(menuMan + 0x30 + 4 * 0x17) != 0
++        // station menus (re/ui/menu_ids.txt): 0x19 attune magic, 0x1a bottomless box, 0xb buy shop, 0xc repair,
++        // 0xd upgrade, 0x40 sell shop, 0x24 warp. Attune statelog 2026-10-16: 0x9 2 -> 0, 0x19 0 -> 1 -> 2; before this
++        // it read as GAMEPLAY and showed the gameplay controls (user). Screen OTHER: Back + taps as clicks
++        val station = STATION_IDS.any { i32(menuMan + 0x30 + 4 * it) != 0 }
++        // 0x11 = general dialog (message / yes-no box, FrpgMenuDlgGeneral). At the bonfire: Kindle, Reverse Hollowing,
++        // Covenant without the item / humanity show "... OK" (statelog 2026-10-17: 0x11 0 -> 7 -> 21 -> 0, 0x48 = 1);
++        // the gameplay controls stayed on screen (user). A menu: Back + taps click the box buttons
++        val dialog = i32(menuMan + 0x30 + 4 * 0x11) != 0
++        if (i32(menuMan + 0x50) != 0 || optionPage || bonfire || levelUp || station || dialog) {
++            // MenuMan state[id] = menuMan + 0x30 + 4 * id (re/ui/menu_ids.txt): 2 inventory, 3 equipment
++            // 0x15 status, 0x2a system, state[8] == 8: tab bar open with no tab
++            menuScreen = when {
++                i32(menuMan + 0x30 + 4 * 2) != 0 -> MenuScreen.INVENTORY
++                i32(menuMan + 0x30 + 4 * 3) != 0 -> MenuScreen.EQUIPMENT
++                optionPage -> MenuScreen.OPTIONS
++                levelUp -> MenuScreen.LEVEL_UP
++                bonfire && i32(menuMan + 0x50) == 0 -> MenuScreen.BONFIRE
++                i32(menuMan + 0x30 + 4 * 0x15) != 0 -> MenuScreen.STATUS
++                i32(menuMan + 0x30 + 4 * 0x2a) != 0 -> MenuScreen.SYSTEM
++                i32(menuMan + 0x50) == 8 -> MenuScreen.BAR
++                else -> MenuScreen.OTHER
++            }
++            return Phase.MENU
++        }
++        // Bink movie (opening after character creation): state 0x29 = 1 for the whole movie (with 0x54 = 1, 0x5b = 9;
++        // memory dumps 2026-10-16). Shown like a cutscene: only the Skip button
++        if (i32(menuMan + 0x30 + 4 * 0x29) != 0) {
++            if (!cutsceneLogged) Timber.tag("DSR").i("movie start")
++            cutsceneLogged = true
++            cutscene = true
++            return Phase.GAMEPLAY
++        }
++        charMakeStep = i32(menuMan + 0x30 + 4 * 0x1e)
++        // character creation (New Game; memory dump 2026-10-16): 0x26 main screen, 0x25 face edit, 0x27 class select.
++        // No player exists yet, so without this it read as LOADING and the app showed no buttons
++        // 0x26 is also 1 on the boot logo screens (with 0x3c = 1; user 2026-10-16 saw the buttons on the Bandai Namco
++        // splash): there the sub-step 0x1e is 0, in character creation it is 2 / 5 / 7
++        val s26 = i32(menuMan + 0x30 + 4 * 0x26) != 0 && charMakeStep != 0
++        if (s26 || i32(menuMan + 0x30 + 4 * 0x25) != 0 || i32(menuMan + 0x30 + 4 * 0x27) != 0) {
++            menuScreen = MenuScreen.CHAR_MAKE
++            return Phase.MENU
++        }
++        val worldChrMan = u64(WORLD_CHR_MAN)
++        if (worldChrMan == 0L || u64(worldChrMan + 0x68) == 0L) return Phase.LOADING
++        val gameDataMan = u64(GAME_DATA_MAN)
++        // cutscene: GAMEPLAY with only the Skip button (checked before the IGT stall test, in case IGT stops in remo)
++        val remo = u64(REMO_MAN)
++        if (remo != 0L && bytes(remo + 0x150, 1).get(0).toInt() != 0) {
++            if (!cutsceneLogged) Timber.tag("DSR").i("cutscene start")
++            cutsceneLogged = true
++            cutscene = true
++            actionPrompt = -1
++            return Phase.GAMEPLAY
++        }
++        if (cutsceneLogged) Timber.tag("DSR").i("cutscene end")
++        cutsceneLogged = false
++        val igt = if (gameDataMan == 0L) -1 else i32(gameDataMan + 0xA4)
++        val now = System.currentTimeMillis()
++        if (igt != lastIgt) { lastIgt = igt; lastIgtTickMs = now }
++        if (now - lastIgtTickMs > IGT_STALL_MS) return Phase.LOADING
++        // item-get popup (MenuMan+0x81c = item id, -1 = none) also waits for A: keep the pill up for it
++        actionPrompt = if (i32(menuMan + 0x81c) != -1) 1 else if (talking) TALK_PROMPT else i32(menuMan + 0x828)
++        lockScan = runCatching { readLockScan() }.getOrNull()
++        val pgd = u64(gameDataMan + 0x10)
++        if (pgd != 0L) {
++            quickSlots = (0 until 5).count { i32(pgd + 0x438 + 4L * it) >= 0 }.coerceAtLeast(1)
++            val lo = readLoadout(pgd, u64(worldChrMan + 0x68))
++            if (lo != loadout) Timber.tag("DSR").i("loadout %s", lo)
++            loadout = lo
++        }
++        return Phase.GAMEPLAY
++    }
++
++    /** The game process is the one with DarkSoulsRemastered.exe mapped at the image base. */
++    private fun attach(): Boolean {
++        val procs = File("/proc").listFiles() ?: return false
++        for (p in procs) {
++            val id = p.name.toIntOrNull() ?: continue
++            val cmd = runCatching { File(p, "cmdline").readText() }.getOrNull() ?: continue
++            if (!cmd.contains("DarkSoulsRemastered.exe")) continue
++            val mapped = runCatching {
++                File(p, "maps").useLines { lines -> lines.any { it.startsWith("140000000-") && it.endsWith("DarkSoulsRemastered.exe") } }
++            }.getOrDefault(false)
++            if (mapped) {
++                mem = RandomAccessFile(File(p, "mem"), "r")
++                pid = id
++                startupNoticeDone = false
++                startupNoticeUp = false
++                Timber.tag("DSR").i("Attached to game pid %d", id)
++                return true
++            }
++        }
++        return false
++    }
++
++    /** PlayerGameData layout: re/RE_NOTES.md "Equipment, quick items, spells, inventory". */
++    private fun readLoadout(pgd: Long, chr: Long): Loadout {
++        val l = i32(pgd + 0x30c)
++        val r = i32(pgd + 0x310)
++        val left = if (l in 0..1) i32(pgd + 0x324 + 8L * l) else -1
++        val right = if (r in 0..1) i32(pgd + 0x324 + 8L * r + 4) else -1
++        var spell = -1
++        var casts = 0
++        val magic = u64(pgd + 0x418)
++        if (magic != 0L) {
++            val s = i32(magic + 0x78)
++            if (s in 0..11) { spell = i32(magic + 0x18 + 8L * s); casts = i32(magic + 0x1c + 8L * s) }
++        }
++        var quick = -1
++        var count = 0
++        val inv = u64(pgd + 0x3d8)
++        val q = i32(pgd + 0x44c)
++        if (inv != 0L && q in 0..2047) { quick = i32(inv + 0x1cL * q + 4); count = i32(inv + 0x1cL * q + 8) }
++        return Loadout(left, right, spell, casts, quick, count, if (chr != 0L) i32(chr + 0xb20) else 1)
++    }
++
++    private fun readLockScan(): LockScan? {
++        val lt = u64(LOCK_TGT_MAN)
++        if (lt == 0L) return null
++        val list = ArrayList<LockCandidate>()
++        var e = u64(lt + 0x10)
++        var n = 0
++        while (e != 0L && n++ < 64) {
++            val b = bytes(e, 0x48)
++            val lp = b.getLong(0x38)
++            if (lp != 0L) list.add(LockCandidate(lp, i32(lp + 0x14), b.getFloat(0), b.getFloat(4), b.getFloat(8), b.get(0x40).toInt() and 0xff))
++            e = b.getLong(0x30)
++        }
++        val camPtr = u64(lt + 0x1438)
++        if (camPtr == 0L) return null
++        val c = bytes(camPtr + 0x10, 0x50)
++        val cam = FloatArray(20) { c.getFloat(it * 4) }
++        val rs = u64(RENDER_SIZE)
++        if (rs == 0L) return null
++        val r = bytes(rs + 0x6f0, 8)
++        return LockScan(list, cam, r.getFloat(0), r.getFloat(4), bytes(lt + 0x1430, 1).get(0).toInt() != 0)
++    }
++
++    private fun bytes(addr: Long, n: Int): ByteBuffer {
++        val a = ByteArray(n)
++        val m = mem ?: return ByteBuffer.wrap(a).order(ByteOrder.LITTLE_ENDIAN)
++        m.seek(addr); m.readFully(a)
++        return ByteBuffer.wrap(a).order(ByteOrder.LITTLE_ENDIAN)
++    }
++
++    /**
++     * Candidate nearest to the render-pixel point (gx, gy) within [tol] render px, projected with the game's
++     * camera (docs/LOCKON.md §2: view = inverse(world matrix), D3D LH perspective). Only entries the game can
++     * lock now ((flags & 0x50) == 0x10) or the current target (0x20 while locked).
++     */
++    fun pickLockTarget(gx: Float, gy: Float, tol: Float): LockCandidate? {
++        val s = lockScan ?: return null
++        val view = invert4(s.cam) ?: return null
++        val fovY = s.cam[16]; val aspect = s.cam[17]; val near = s.cam[18]
++        val f = (1.0 / Math.tan(fovY / 2.0)).toFloat()
++        var best: LockCandidate? = null
++        var bestD = tol * tol
++        for (c in s.candidates) {
++            val current = s.locked && (c.flags and 0x20) != 0
++            if ((c.flags and 0x50) != 0x10 && !current) continue
++            // row vector [x y z 1] · view
++            val vx = c.x * view[0] + c.y * view[4] + c.z * view[8] + view[12]
++            val vy = c.x * view[1] + c.y * view[5] + c.z * view[9] + view[13]
++            val vz = c.x * view[2] + c.y * view[6] + c.z * view[10] + view[14]
++            if (vz <= near) continue
++            val px = (vx * (f / aspect) / vz * 0.5f + 0.5f) * s.w
++            val py = (-(vy * f / vz) * 0.5f + 0.5f) * s.h
++            val d = (px - gx) * (px - gx) + (py - gy) * (py - gy)
++            if (d < bestD) { bestD = d; best = c }
++        }
++        return best
++    }
++
++    /** General 4x4 inverse (row-major), null if singular. */
++    private fun invert4(m: FloatArray): FloatArray? {
++        val a = DoubleArray(16) { m[it].toDouble() }
++        val inv = DoubleArray(16)
++        inv[0] = a[5]*a[10]*a[15]-a[5]*a[11]*a[14]-a[9]*a[6]*a[15]+a[9]*a[7]*a[14]+a[13]*a[6]*a[11]-a[13]*a[7]*a[10]
++        inv[4] = -a[4]*a[10]*a[15]+a[4]*a[11]*a[14]+a[8]*a[6]*a[15]-a[8]*a[7]*a[14]-a[12]*a[6]*a[11]+a[12]*a[7]*a[10]
++        inv[8] = a[4]*a[9]*a[15]-a[4]*a[11]*a[13]-a[8]*a[5]*a[15]+a[8]*a[7]*a[13]+a[12]*a[5]*a[11]-a[12]*a[7]*a[9]
++        inv[12] = -a[4]*a[9]*a[14]+a[4]*a[10]*a[13]+a[8]*a[5]*a[14]-a[8]*a[6]*a[13]-a[12]*a[5]*a[10]+a[12]*a[6]*a[9]
++        inv[1] = -a[1]*a[10]*a[15]+a[1]*a[11]*a[14]+a[9]*a[2]*a[15]-a[9]*a[3]*a[14]-a[13]*a[2]*a[11]+a[13]*a[3]*a[10]
++        inv[5] = a[0]*a[10]*a[15]-a[0]*a[11]*a[14]-a[8]*a[2]*a[15]+a[8]*a[3]*a[14]+a[12]*a[2]*a[11]-a[12]*a[3]*a[10]
++        inv[9] = -a[0]*a[9]*a[15]+a[0]*a[11]*a[13]+a[8]*a[1]*a[15]-a[8]*a[3]*a[13]-a[12]*a[1]*a[11]+a[12]*a[3]*a[9]
++        inv[13] = a[0]*a[9]*a[14]-a[0]*a[10]*a[13]-a[8]*a[1]*a[14]+a[8]*a[2]*a[13]+a[12]*a[1]*a[10]-a[12]*a[2]*a[9]
++        inv[2] = a[1]*a[6]*a[15]-a[1]*a[7]*a[14]-a[5]*a[2]*a[15]+a[5]*a[3]*a[14]+a[13]*a[2]*a[7]-a[13]*a[3]*a[6]
++        inv[6] = -a[0]*a[6]*a[15]+a[0]*a[7]*a[14]+a[4]*a[2]*a[15]-a[4]*a[3]*a[14]-a[12]*a[2]*a[7]+a[12]*a[3]*a[6]
++        inv[10] = a[0]*a[5]*a[15]-a[0]*a[7]*a[13]-a[4]*a[1]*a[15]+a[4]*a[3]*a[13]+a[12]*a[1]*a[7]-a[12]*a[3]*a[5]
++        inv[14] = -a[0]*a[5]*a[14]+a[0]*a[6]*a[13]+a[4]*a[1]*a[14]-a[4]*a[2]*a[13]-a[12]*a[1]*a[6]+a[12]*a[2]*a[5]
++        inv[3] = -a[1]*a[6]*a[11]+a[1]*a[7]*a[10]+a[5]*a[2]*a[11]-a[5]*a[3]*a[10]-a[9]*a[2]*a[7]+a[9]*a[3]*a[6]
++        inv[7] = a[0]*a[6]*a[11]-a[0]*a[7]*a[10]-a[4]*a[2]*a[11]+a[4]*a[3]*a[10]+a[8]*a[2]*a[7]-a[8]*a[3]*a[6]
++        inv[11] = -a[0]*a[5]*a[11]+a[0]*a[7]*a[9]+a[4]*a[1]*a[11]-a[4]*a[3]*a[9]-a[8]*a[1]*a[7]+a[8]*a[3]*a[5]
++        inv[15] = a[0]*a[5]*a[10]-a[0]*a[6]*a[9]-a[4]*a[1]*a[10]+a[4]*a[2]*a[9]+a[8]*a[1]*a[6]-a[8]*a[2]*a[5]
++        val det = a[0]*inv[0]+a[1]*inv[4]+a[2]*inv[8]+a[3]*inv[12]
++        if (Math.abs(det) < 1e-12) return null
++        return FloatArray(16) { (inv[it] / det).toFloat() }
++    }
++
++    private fun close() {
++        runCatching { mem?.close() }
++        mem = null
++        pid = -1
++    }
++
++    private fun u64(addr: Long): Long {
++        val m = mem ?: return 0
++        m.seek(addr); m.readFully(buf.array(), 0, 8)
++        return buf.getLong(0)
++    }
++
++    private fun i32(addr: Long): Int {
++        val m = mem ?: return 0
++        m.seek(addr); m.readFully(buf.array(), 0, 4)
++        return buf.getInt(0)
++    }
++}
+diff --git a/app/src/main/java/app/gamenative/dsr/DsrGpuGovernor.kt b/app/src/main/java/app/gamenative/dsr/DsrGpuGovernor.kt
+new file mode 100644
+index 00000000..132a0f07
+--- /dev/null
++++ b/app/src/main/java/app/gamenative/dsr/DsrGpuGovernor.kt
+@@ -0,0 +1,62 @@
++package app.gamenative.dsr
++
++import android.content.Context
++import app.gamenative.powercontrol.metrics.GpuUsageSampler
++import timber.log.Timber
++
++/**
++ * GPU load limit (user, 2026-10-15: "limit the gpu usage of phone to go like at 50%"). Android has no GPU usage cap
++ * without root, so the render size is the lever: the game state thread samples GPU busy % during GAMEPLAY; at the
++ * next start fitScreen picks a smaller render budget when the last session averaged over TARGET, a larger one when
++ * it stayed well under. The resolution needs a game restart, hence the per-session step.
++ */
++object DsrGpuGovernor {
++    private const val PREFS = "dsr_gpu"
++    private const val TARGET = 50.0          // % GPU busy in gameplay
++    private const val LOW = 35.0             // below this: room for a sharper picture
++    private const val STEP = 0.1
++    // 1.0 gave 1408x576 on the Flip6 and the game crashed at boot (height < 600 is not a valid mode): 1.1 = 648 high
++    const val MIN_BUDGET = 1.1
++    const val MAX_BUDGET = 1.5
++    private const val MIN_SAMPLES = 30       // 1 min of gameplay at SAMPLE_MS
++    private const val SAMPLE_MS = 2000L
++
++    private val sampler = GpuUsageSampler()
++    private var context: Context? = null
++    private var sum = 0.0
++    private var count = 0
++    private var lastSampleMs = 0L
++
++    /** Render budget for this start (multiple of 1280x720 pixels), adjusted from the last session's average. */
++    fun budget(context: Context, default: Double): Double {
++        this.context = context.applicationContext
++        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
++        var budget = prefs.getFloat("budget", default.toFloat()).toDouble().coerceIn(MIN_BUDGET, MAX_BUDGET)
++        val avg = prefs.getFloat("avg", -1f).toDouble()
++        if (avg >= 0) {
++            val next = when {
++                avg > TARGET -> budget - STEP
++                avg < LOW -> budget + STEP
++                else -> budget
++            }.coerceIn(MIN_BUDGET, MAX_BUDGET)
++            Timber.tag("DSR").i("gpu governor: last session %.0f %% -> budget %.2f -> %.2f", avg, budget, next)
++            budget = next
++        }
++        prefs.edit().putFloat("budget", budget.toFloat()).remove("avg").apply()
++        sum = 0.0; count = 0
++        return budget
++    }
++
++    /** Game state thread, every poll: one GPU sample per SAMPLE_MS while in gameplay; saves the running average. */
++    fun tick(phase: DsrGameState.Phase) {
++        if (phase != DsrGameState.Phase.GAMEPLAY) return
++        val now = System.currentTimeMillis()
++        if (now - lastSampleMs < SAMPLE_MS) return
++        lastSampleMs = now
++        val pct = sampler.sample()?.percent ?: return
++        sum += pct; count++
++        if (count >= MIN_SAMPLES && count % 15 == 0) {
++            context?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)?.edit()?.putFloat("avg", (sum / count).toFloat())?.apply()
++        }
++    }
++}
+diff --git a/app/src/main/java/app/gamenative/dsr/DsrInstallActivity.kt b/app/src/main/java/app/gamenative/dsr/DsrInstallActivity.kt
+new file mode 100644
+index 00000000..bc64b3c8
+--- /dev/null
++++ b/app/src/main/java/app/gamenative/dsr/DsrInstallActivity.kt
+@@ -0,0 +1,124 @@
++package app.gamenative.dsr
++
++import android.app.Activity
++import android.content.Intent
++import android.graphics.Color
++import android.graphics.Typeface
++import android.net.Uri
++import android.os.Bundle
++import android.provider.OpenableColumns
++import android.view.Gravity
++import android.view.ViewGroup.LayoutParams.MATCH_PARENT
++import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
++import android.widget.Button
++import android.widget.LinearLayout
++import android.widget.ProgressBar
++import android.widget.TextView
++import app.gamenative.MainActivity
++import java.io.FileInputStream
++import kotlin.concurrent.thread
++import timber.log.Timber
++
++/**
++ * First-run screen of a converter build: unpacks the game payload (DsrInstaller), then starts MainActivity.
++ * Fat APK: the payload is inside the APK and the install starts at once. Otherwise the player picks the
++ * DarkSoulsRemastered.dsrdata file the converter wrote next to the APK (system file picker, no storage permission).
++ */
++class DsrInstallActivity : Activity() {
++    private lateinit var status: TextView
++    private lateinit var bar: ProgressBar
++    private lateinit var pick: Button
++
++    override fun onCreate(savedInstanceState: Bundle?) {
++        super.onCreate(savedInstanceState)
++        val dp = resources.displayMetrics.density
++        val root = LinearLayout(this).apply {
++            orientation = LinearLayout.VERTICAL
++            gravity = Gravity.CENTER
++            setBackgroundColor(Color.BLACK)
++            setPadding((48 * dp).toInt(), 0, (48 * dp).toInt(), 0)
++        }
++        root.addView(TextView(this).apply {
++            text = "DARK SOULS"
++            setTextColor(0xFFEBE5D8.toInt())
++            textSize = 34f
++            typeface = Typeface.SERIF
++            gravity = Gravity.CENTER
++        })
++        status = TextView(this).apply {
++            setTextColor(0xFFB8AE9C.toInt())
++            textSize = 16f
++            gravity = Gravity.CENTER
++            setPadding(0, (24 * dp).toInt(), 0, (16 * dp).toInt())
++        }
++        root.addView(status, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
++        bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 1000 }
++        root.addView(bar, LinearLayout.LayoutParams(MATCH_PARENT, (12 * dp).toInt()))
++        pick = Button(this).apply {
++            text = "Choose DarkSoulsRemastered.dsrdata"
++            textSize = 18f
++            setOnClickListener {
++                startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
++                    addCategory(Intent.CATEGORY_OPENABLE); type = "*/*"
++                }, PICK)
++            }
++        }
++        root.addView(pick, LinearLayout.LayoutParams(WRAP_CONTENT, (64 * dp).toInt()).apply { topMargin = (32 * dp).toInt() })
++        setContentView(root)
++
++        if (DsrInstaller.apkHasPayload(this)) {
++            pick.visibility = android.view.View.GONE
++            val apk = java.io.File(applicationInfo.sourceDir)
++            run("Installing the game (one time)…") {
++                DsrInstaller.install(this, FileInputStream(apk), DsrInstaller.APK_PREFIX, apk.length(), it)
++            }
++        } else {
++            status.text = "One-time setup: copy DarkSoulsRemastered.dsrdata (made by the converter, next to the APK) " +
++                "to this phone, then choose it."
++        }
++    }
++
++    @Deprecated("platform API")
++    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
++        super.onActivityResult(requestCode, resultCode, data)
++        val uri = data?.data ?: return
++        if (requestCode != PICK || resultCode != RESULT_OK) return
++        pick.visibility = android.view.View.GONE
++        val size = sizeOf(uri)
++        run("Installing the game (one time)…") { progress ->
++            contentResolver.openInputStream(uri)!!.use { DsrInstaller.install(this, it, "", size, progress) }
++        }
++    }
++
++    private fun run(title: String, job: ((Float, String) -> Unit) -> Unit) {
++        status.text = title
++        thread(name = "dsr-install") {
++            var last = -1
++            try {
++                job { f, name ->
++                    val p = (f * 1000).toInt()
++                    if (p != last) {
++                        last = p
++                        runOnUiThread { bar.progress = p; status.text = "$title  ${p / 10}%\n$name" }
++                    }
++                }
++                runOnUiThread {
++                    startActivity(Intent(this, MainActivity::class.java))
++                    finish()
++                }
++            } catch (e: Exception) {
++                Timber.e(e, "payload install failed")
++                runOnUiThread {
++                    status.text = "Install failed: ${e.message}\nFree space needed: about 8 GB. Try again."
++                    pick.visibility = android.view.View.VISIBLE
++                }
++            }
++        }
++    }
++
++    private fun sizeOf(uri: Uri): Long = contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use {
++        if (it.moveToFirst()) it.getLong(0) else -1L
++    } ?: -1L
++
++    companion object { private const val PICK = 7 }
++}
+diff --git a/app/src/main/java/app/gamenative/dsr/DsrInstaller.kt b/app/src/main/java/app/gamenative/dsr/DsrInstaller.kt
+new file mode 100644
+index 00000000..8e5e3913
+--- /dev/null
++++ b/app/src/main/java/app/gamenative/dsr/DsrInstaller.kt
+@@ -0,0 +1,72 @@
++package app.gamenative.dsr
++
++import android.content.Context
++import java.io.File
++import java.io.InputStream
++import java.util.zip.ZipInputStream
++import timber.log.Timber
++
++/**
++ * First-run install of the converter payload (converter/, docs/CONVERTER.md). The payload is a ZIP tree:
++ *   game/...   -> the game folder (DsrLauncher.gameDir): game files, patched menus, dsr_assets
++ *   files/...  -> the app's filesDir: imagefs_bionic.txz, proton-9.0-x86_64.txz, experimental-drm-*.tzst,
++ *                 contents/adrenotools/<driver>/ (what the app would otherwise download on first launch)
++ * Source: the APK itself (entries under assets/payload/, a "fat" build) or a data file the user picks
++ * (DarkSoulsRemastered.dsrdata, entries at the root). Both are read as one forward stream (ZipInputStream, ZIP64 ok).
++ */
++object DsrInstaller {
++    const val APK_PREFIX = "assets/payload/"
++    /** Fixed custom-game id for the converter build (CustomGameScanner reads .gamenative before hashing the path). */
++    private const val APP_ID = 570940
++    private const val MARKER = ".dsr_installed"
++
++    fun needsInstall(context: Context): Boolean {
++        val dir = DsrLauncher.gameDir(context)
++        // a dev phone set up by hand has the exe but no marker: leave it alone
++        return !File(dir, MARKER).isFile && !File(dir, "DarkSoulsRemastered.exe").isFile
++    }
++
++    /** True when this APK carries the payload (fat build). */
++    fun apkHasPayload(context: Context): Boolean = try {
++        java.util.zip.ZipFile(context.applicationInfo.sourceDir).use { it.getEntry(APK_PREFIX + "game/DarkSoulsRemastered.exe") != null }
++    } catch (e: Exception) { Timber.w(e, "payload check"); false }
++
++    /**
++     * Unpacks [input] (a ZIP stream). Only entries under [prefix] are used, the prefix is cut off.
++     * [totalBytes] = payload size for the progress callback (fraction 0..1, current file name).
++     */
++    fun install(context: Context, input: InputStream, prefix: String, totalBytes: Long, progress: (Float, String) -> Unit) {
++        val game = DsrLauncher.gameDir(context)
++        val files = context.filesDir
++        var done = 0L
++        val buf = ByteArray(1 shl 20)
++        ZipInputStream(input.buffered(1 shl 20)).use { zip ->
++            while (true) {
++                val e = zip.nextEntry ?: break
++                if (e.isDirectory || !e.name.startsWith(prefix)) continue
++                val rel = e.name.substring(prefix.length)
++                val dest = when {
++                    rel.startsWith("game/") -> File(game, rel.removePrefix("game/"))
++                    rel.startsWith("files/") -> File(files, rel.removePrefix("files/"))
++                    else -> continue
++                }
++                if (!dest.canonicalPath.startsWith(game.canonicalPath) && !dest.canonicalPath.startsWith(files.canonicalPath)) continue
++                dest.parentFile?.mkdirs()
++                val tmp = File(dest.path + ".part")
++                tmp.outputStream().use { out ->
++                    while (true) {
++                        val n = zip.read(buf)
++                        if (n < 0) break
++                        out.write(buf, 0, n)
++                        done += n
++                        progress(if (totalBytes > 0) (done.toFloat() / totalBytes).coerceAtMost(1f) else 0f, rel)
++                    }
++                }
++                if (!tmp.renameTo(dest)) { dest.delete(); tmp.renameTo(dest) }
++            }
++        }
++        File(game, ".gamenative").writeText("{\"appId\":$APP_ID}")
++        File(game, MARKER).writeText("payload bytes=$done\n")
++        Timber.tag("DSR").i("payload installed: %d bytes", done)
++    }
++}
+diff --git a/app/src/main/java/app/gamenative/dsr/DsrLauncher.kt b/app/src/main/java/app/gamenative/dsr/DsrLauncher.kt
+new file mode 100644
+index 00000000..1cb089d8
+--- /dev/null
++++ b/app/src/main/java/app/gamenative/dsr/DsrLauncher.kt
+@@ -0,0 +1,195 @@
++package app.gamenative.dsr
++
++import android.app.Activity
++import android.content.Context
++import app.gamenative.data.GameSource
++import app.gamenative.utils.IntentLaunchManager
++import java.io.File
++import java.nio.ByteBuffer
++import java.nio.ByteOrder
++import java.security.MessageDigest
++import javax.crypto.Cipher
++import javax.crypto.spec.IvParameterSpec
++import javax.crypto.spec.SecretKeySpec
++import kotlin.math.roundToInt
++import org.json.JSONObject
++import timber.log.Timber
++
++/**
++ * Single-game mode: every normal app start launches Dark Souls Remastered directly.
++ * The game lives in app-internal storage (never /storage/emulated/0: FUSE crashes under Wine).
++ */
++object DsrLauncher {
++    const val GAME_DIR = "DarkSoulsRemastered"
++
++    /**
++     * CPU list for the game: every core except the slowest cluster (A520 0..1 on the Flip6) and a lone fastest core
++     * (the X4 prime 7: heat). Flip6 -> "2,3,4,5,6", the hand-tuned dev setup. Null if the frequencies are unreadable.
++     */
++    fun gameCpuList(): String? = runCatching {
++        val freq = (0 until Runtime.getRuntime().availableProcessors()).associateWith {
++            File("/sys/devices/system/cpu/cpu$it/cpufreq/cpuinfo_max_freq").readText().trim().toLong()
++        }
++        val min = freq.values.min(); val max = freq.values.max()
++        val cores = freq.filter { (_, f) -> f != min && !(f == max && freq.values.count { it == max } == 1) }.keys.sorted()
++        cores.takeIf { it.size >= 2 }?.joinToString(",")
++    }.getOrNull()
++
++    fun gameDir(context: Context): File = File(context.dataDir, "CustomGames/$GAME_DIR")
++
++    /**
++     * The game is capped at 60 FPS (agent: game pacer FrpgFlipper_60FPS, 2026-10-17); a 120 Hz panel just burns
++     * power and heat (the Flip6 throttles hard at ~45 °C skin). Ask for the lowest mode >= 60 Hz at this resolution.
++     */
++    fun preferLowRefreshRate(activity: Activity) {
++        val display = activity.windowManager.defaultDisplay ?: return
++        val cur = display.mode
++        val mode = display.supportedModes
++            .filter { it.physicalWidth == cur.physicalWidth && it.physicalHeight == cur.physicalHeight && it.refreshRate >= 59f }
++            .minByOrNull { it.refreshRate } ?: return
++        activity.window.attributes = activity.window.attributes.apply {
++            preferredDisplayModeId = mode.modeId
++            preferredRefreshRate = mode.refreshRate
++        }
++        Timber.tag("DsrLauncher").i("Display mode %d @ %.0f Hz", mode.modeId, mode.refreshRate)
++    }
++
++    /**
++     * The in-game agent (mod/dinput8): a dinput8.dll proxy the game loads (WINEDLLOVERRIDES=dinput8=n,b).
++     * The app can read but not write game memory (SELinux), so game patches live there: logic tick governor
++     * (game time = real time at any FPS), 60 FPS cap, touch HUD, menus. Copied on every start so APK updates reach it.
++     */
++    fun installAgent(context: Context) {
++        val dir = gameDir(context)
++        if (!dir.isDirectory) return
++        runCatching {
++            // Dev override: a dinput8.dll.dev pushed into the game folder wins over the bundled agent.
++            val dev = File(dir, "dinput8.dll.dev")
++            val bytes = if (dev.isFile) dev.readBytes() else context.assets.open("dsr/dinput8.dll").use { it.readBytes() }
++            val dst = File(dir, "dinput8.dll")
++            if (!dst.exists() || !dst.readBytes().contentEquals(bytes)) dst.writeBytes(bytes)
++        }.onFailure { Timber.tag("DsrLauncher").w(it, "Agent install failed") }
++    }
++
++    /**
++     * Android kills the game instead of using Quit Game, so the game shows "Last time, the game may not have
++     * been closed using Quit Game..." on every start. The flag is byte 0x1068 of the save's system-data entry
++     * (BND4 entry 10: MD5(16) + IV(16) + AES-128-CBC). Clear it before launch (tools/sl2.py, docs/PORTING_LOG.md).
++     */
++    fun clearQuitFlag(context: Context) {
++        if (gameRunning()) return
++        val root = File(context.filesDir, "imagefs_shared/home/xuser-SHARED_PREFIX/.wine/drive_c/users/xuser/Documents/NBGI/DARK SOULS REMASTERED")
++        root.listFiles()?.map { File(it, "DRAKS0005.sl2") }?.filter { it.isFile }?.forEach { file ->
++            runCatching {
++                val buf = file.readBytes()
++                val n = ByteBuffer.wrap(buf).order(ByteOrder.LITTLE_ENDIAN)
++                val hdr = n.getLong(0x20).toInt()
++                val e = 0x40 + SYSTEM_ENTRY * hdr
++                val size = n.getLong(e + 8).toInt()
++                val off = n.getInt(e + 0x10)
++                val key = SecretKeySpec(SAVE_KEY, "AES")
++                val iv = IvParameterSpec(buf, off + 16, 16)
++                val plain = Cipher.getInstance("AES/CBC/NoPadding").apply { init(Cipher.DECRYPT_MODE, key, iv) }
++                    .doFinal(buf, off + 32, size - 32)
++                if (plain[QUIT_FLAG].toInt() == 0) return@runCatching
++                plain[QUIT_FLAG] = 0
++                val ct = Cipher.getInstance("AES/CBC/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key, iv) }.doFinal(plain)
++                System.arraycopy(ct, 0, buf, off + 32, ct.size)
++                val md5 = MessageDigest.getInstance("MD5").apply { update(buf, off + 16, size - 16) }.digest()
++                System.arraycopy(md5, 0, buf, off, 16)
++                val tmp = File(file.path + ".tmp")
++                tmp.writeBytes(buf)
++                if (!tmp.renameTo(file)) error("rename failed")
++                Timber.tag("DsrLauncher").i("Cleared quit flag in %s", file.path)
++            }.onFailure { Timber.tag("DsrLauncher").w(it, "Quit flag clear failed: ${file.path}") }
++        }
++    }
++
++    private fun gameRunning(): Boolean = File("/proc").listFiles()?.any { p ->
++        p.name.toIntOrNull() != null && runCatching { File(p, "cmdline").readText().contains("DarkSoulsRemastered.exe") }.getOrDefault(false)
++    } ?: false
++
++    private const val SYSTEM_ENTRY = 10
++    private const val QUIT_FLAG = 0x1068
++    private val SAVE_KEY = byteArrayOf(0x01, 0x23, 0x45, 0x67, 0x89.toByte(), 0xAB.toByte(), 0xCD.toByte(), 0xEF.toByte(),
++        0xFE.toByte(), 0xDC.toByte(), 0xBA.toByte(), 0x98.toByte(), 0x76, 0x54, 0x32, 0x10)
++
++    /**
++     * Native phone aspect, no black bars (docs/ui/ASPECT_RATIO.md): DSR renders Hor+ and anchors its HUD itself, so the
++     * X screen / Wine desktop just takes the display's ratio, at RENDER_BUDGET x 1280x720 pixels.
++     * The agent (mod/dinput8/display.c) pins the game to borderless at that size.
++     */
++    /**
++     * Render pixels as a multiple of 1280x720 (1.1 = 1584x648 on the Flip6, 1.2 = ~1664x680, 2.0 = ~2128x872).
++     * 2.0 ran the GPU at 85-100 % and the phone at ~70 °C (throttling -> frame drops). Target: GPU <= 50 % in play
++     * (user, 2026-10-15): 1.2 + post effects off (1.1 measured 34 % with them on).
++     */
++    private const val MIN_HEIGHT = 648
++    private const val RENDER_BUDGET = 1.2   // start value; DsrGpuGovernor adjusts it per session
++
++    fun fitScreen(activity: Activity) {
++        val m = android.util.DisplayMetrics()
++        @Suppress("DEPRECATION") activity.windowManager.defaultDisplay.getRealMetrics(m)
++        val aspect = maxOf(m.widthPixels, m.heightPixels).toDouble() / minOf(m.widthPixels, m.heightPixels)
++        if (aspect < 1.7) return   // 16:9 or squarer (cover screen, tablets): keep the stock size
++        // multiples of 8 near the pixel budget, with the closest ratio (fit mode would show bars for any mismatch)
++        val budget = DsrGpuGovernor.budget(activity, RENDER_BUDGET)   // GPU <= 50 % (DsrGpuGovernor)
++        val target = Math.sqrt(1280.0 * 720 * budget / aspect)
++        val h0 = (-6..6).map { (target / 8).roundToInt() * 8 + it * 8 }
++            .minByOrNull { Math.abs((it * aspect / 8).roundToInt() * 8 / it.toDouble() - aspect) }!!
++        val h = maxOf(h0, MIN_HEIGHT)   // the game crashes at boot below ~600 lines (1408x576 did)
++        val w = (h * aspect / 8).roundToInt() * 8
++        val size = "${w}x$h"
++        writeDisplayIni(activity, w, h)
++        val f = File(activity.filesDir, "imagefs_shared/home/xuser-SHARED_PREFIX/.container")
++        runCatching {
++            val json = JSONObject(f.readText())
++            if (json.optString("screenSize") == size) return
++            json.put("screenSize", size)
++            f.writeText(json.toString())
++            Timber.tag("DsrLauncher").i("Screen %s (display %dx%d)", size, m.widthPixels, m.heightPixels)
++        }.onFailure { Timber.tag("DsrLauncher").w(it, "Screen size update failed") }
++    }
++
++    /**
++     * The game reads its display mode from DarkSouls.ini at boot, before the agent can pin it. A size it does not
++     * accept (e.g. after a borderless 1584x648 run) makes it fall back to fullscreen 800x600 and rewrite the ini:
++     * the picture then fills only the top-left corner. Write borderless (WindowMode=2) at the screen size every start,
++     * and switch the GPU post effects off (the in-game PC settings can turn them back on until the next start).
++     */
++    private fun writeDisplayIni(context: Context, w: Int, h: Int) {
++        val f = File(context.filesDir, "imagefs_shared/home/xuser-SHARED_PREFIX/.wine/drive_c/users/xuser/AppData/Local/FromSoftware/NBGI/DarkSouls/DarkSouls.ini")
++        if (!f.isFile || gameRunning()) return
++        runCatching {
++            var section = ""
++            val lines = f.readLines().map { line ->
++                if (line.startsWith("[")) section = line.trim()
++                val key = line.substringBefore('=', "").trim()   // the game writes "Key =value"
++                val sized = section == "[DisplaySettingWindow]" || section == "[DisplaySettingFullScreen]"
++                when {
++                    section == "[DisplaySetting]" && key == "WindowMode" -> "WindowMode=2"
++                    sized && key == "Width" -> "Width=$w"
++                    sized && key == "Height" -> "Height=$h"
++                    // GPU post effects off (motion blur, AA, depth of field, SSAO): GPU heat, not looks, limits play time
++                    section == "[DisplaySettingFilter]" && key in POST_EFFECTS_OFF -> "$key=0"
++                    else -> line
++                }
++            }
++            val text = lines.joinToString("\r\n", postfix = "\r\n")
++            if (text == f.readText()) return
++            f.writeText(text)
++            Timber.tag("DsrLauncher").i("DarkSouls.ini display -> borderless %dx%d", w, h)
++        }.onFailure { Timber.tag("DsrLauncher").w(it, "DarkSouls.ini update failed") }
++    }
++
++    private val POST_EFFECTS_OFF = setOf("Blur", "Antialiasing", "DOF", "AmbientOcclusion")
++
++    /** Launch request for the imported game, or null when it is not installed yet. */
++    fun launchRequest(context: Context): IntentLaunchManager.LaunchRequest? {
++        val idFile = File(gameDir(context), ".gamenative")
++        val id = runCatching { JSONObject(idFile.readText()).getInt("appId") }
++            .onFailure { Timber.tag("DsrLauncher").w(it, "No game id at ${idFile.path}") }
++            .getOrNull() ?: return null
++        return IntentLaunchManager.LaunchRequest("${GameSource.CUSTOM_GAME.name}_$id")
++    }
++}
+diff --git a/app/src/main/java/app/gamenative/dsr/DsrTouchControls.java b/app/src/main/java/app/gamenative/dsr/DsrTouchControls.java
+new file mode 100644
+index 00000000..976794a1
+--- /dev/null
++++ b/app/src/main/java/app/gamenative/dsr/DsrTouchControls.java
+@@ -0,0 +1,1166 @@
++package app.gamenative.dsr;
++
++import android.graphics.Canvas;
++import android.graphics.Paint;
++import android.graphics.Rect;
++import android.graphics.RectF;
++import android.graphics.Typeface;
++import android.os.SystemClock;
++import android.util.SparseArray;
++import android.view.HapticFeedbackConstants;
++import android.view.MotionEvent;
++import com.winlator.inputcontrols.Binding;
++import com.winlator.inputcontrols.ControlElement;
++import com.winlator.inputcontrols.ControlsProfile;
++import com.winlator.inputcontrols.GamepadState;
++import com.winlator.math.Mathf;
++import com.winlator.widget.InputControlsView;
++import timber.log.Timber;
++
++/**
++ * Dark Souls gameplay touch layer: design/final_wanted_controls.html (rev 31), docs/CONTROLS.md.
++ *
++ * Positions and sizes come from the profile (assets/inputcontrols/profiles/controls-6.icp).
++ * Each element's role comes from its first binding:
++ * STICK = floating move stick (double-tap = sprint), R1 = Attack (tap = R1, swipe up = R2),
++ * L1 = Block (hold + slide up = L2 parry on release, like the strong attack), D-pad down = Estus slot (tap = next item,
++ * double-tap = X), A = Interact pill, anything else = plain button (slide-through).
++ * A touch on no control and outside the stick zone is the camera (drag) or lock-on (tap).
++ * This class draws the controls (Bone & Ash skin) and owns every gameplay touch.
++ */
++public final class DsrTouchControls {
++    // Rules from the design, in dp and ms
++    private static final long ATTACK_WINDOW_MS = 80;
++    private static final float STRONG_ARM_DP = 12f;
++    private static final float STRONG_FIRE_DP = 30f;
++    private static final float SWIPE_DP = 22f;
++    private static final long ESTUS_DOUBLE_TAP_MS = 250;
++    private static final float ESTUS_STEP_DP = 40f;
++    private static final long SPRINT_DOUBLE_TAP_MS = 300;
++    private static final long FREE_TAP_MS = 180;
++    private static final float FREE_TAP_DP = 8f;
++    /** Tap-to-lock: max distance between the finger and an enemy's lock point on screen. */
++    private static final float LOCK_TAP_DP = 48f;
++    private static final float MIN_HIT_DP = 48f;
++    /** Stick float zone, relative to the stick home: from the left edge to +256 dp, from -66 dp to the bottom. */
++    private static final float STICK_ZONE_RIGHT_DP = 256f;
++    private static final float STICK_ZONE_UP_DP = 66f;
++    /** Camera: finger travel per move event (dp) that gives a full right-stick deflection. */
++    // Touch look = finger speed -> right stick (docs/CONTROLS.md "Camera"): smoothed, past the game's dead zone,
++    // eased out when the finger stops. The agent (cam.c) also turns the camera 1.5x faster than stock.
++    private static final float CAMERA_FULL_DPS = 520f;    // finger speed (dp/s) for full stick
++    private static final float CAMERA_DEAD = 0.16f;       // game stick dead zone: smallest output that turns
++    private static final float CAMERA_SMOOTH_MS = 28f;    // velocity filter time constant
++    private static final float CAMERA_RELEASE_MS = 45f;   // ease-out after the finger stops
++    private static final long CAMERA_TICK_MS = 16;
++    private static final long PULSE_MS = 70;
++    /** Shortest press the game sees: > 2 frames at 30 FPS. A quick tap (adb, fast finger) was missed by Start. */
++    private static final long MIN_HOLD_MS = 80;
++    private static final float ALPHA_IDLE = 0.45f;
++    private static final float ALPHA_TOUCHED = 0.70f;
++    private static final long FADE_MS = 150;
++    /** Interact pill <-> slot row cross-fade. */
++    private static final long SWAP_MS = 250;
++
++    // Bone & Ash skin (copies the game HUD: smoke-dark glass, bone-white rims)
++    private static final int FILL = 0x1c1a17;
++    private static final int FILL_PRESSED = 0x4a463f;
++    private static final int RIM = 0xcdc6b6;
++    private static final int RIM_PRIMARY = 0xece6d8;
++    private static final int INK = 0xebe5d8;
++    private static final int KNOB = 0xe6e0d2;
++    private static final int BRONZE = 0x8a6b45;      // game HUD line frames
++    private static final int BRONZE_LIT = 0xd9b47a;
++    private static final int EMBER = 0xff8a2a;   // armed strong attack
++    private static final float THUMB_DP = 26f;   // holds the heavy / parry icon
++    private static final long EMBER_PULSE_MS = 700;
++
++    private enum Role { STICK, ATTACK, BLOCK, ESTUS, INTERACT, BUTTON, CAMERA }
++    private enum AttackState { PENDING, FIRED, STRONG }
++
++    private static final class Touch {
++        Role role;
++        ControlElement element;
++        float downX, downY, stepX, curX, curY;   // cur = latest finger position (strong-attack thumb marker)
++        long downTime;
++        AttackState attack;
++        boolean strongArmed, onAttack, swiped, sprint;
++        Runnable attackFire;
++    }
++
++    private final InputControlsView view;
++    private final float dp;
++    private final SparseArray<Touch> touches = new SparseArray<>();
++    private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
++    private final RectF rect = new RectF();
++
++    private float stickX = Float.NaN, stickY, knobX, knobY;
++    private long lastStickDown;
++    private int cameraPointer = -1;
++    private float cameraLastX, cameraLastY;
++    private Runnable estusSingleTap;
++    private float visibility;
++    private long lastDrawTime;
++
++    private float camVX, camVY;   // smoothed finger velocity, dp/s
++    private long camLastMove;
++    /** While the finger rests (no move events), decay the smoothed velocity so the camera eases to a stop. */
++    private final Runnable cameraIdle = new Runnable() {
++        @Override public void run() {
++            long idle = SystemClock.uptimeMillis() - camLastMove;
++            if (idle < CAMERA_TICK_MS) { view.postDelayed(this, CAMERA_TICK_MS); return; }
++            float k = (float) Math.exp(-CAMERA_TICK_MS / CAMERA_RELEASE_MS);
++            camVX *= k; camVY *= k;
++            applyCamera();
++            if (Math.abs(camVX) + Math.abs(camVY) > 5f) view.postDelayed(this, CAMERA_TICK_MS);
++            else { camVX = camVY = 0; setCamera(0, 0); }
++        }
++    };
++
++    private static float cameraCurve(float v) {
++        float m = Math.min(1f, Math.abs(v) / CAMERA_FULL_DPS);
++        if (m < 0.01f) return 0f;
++        return Math.signum(v) * (CAMERA_DEAD + (1 - CAMERA_DEAD) * (float) Math.pow(m, 0.8));
++    }
++
++    private void applyCamera() {
++        setCamera(cameraCurve(camVX), cameraCurve(camVY));
++    }
++
++    public DsrTouchControls(InputControlsView view) {
++        this.view = view;
++        this.dp = view.getResources().getDisplayMetrics().density;
++        paint.setTypeface(Typeface.create(Typeface.SERIF, Typeface.BOLD));
++        paint.setTextAlign(Paint.Align.CENTER);
++        DsrAssets.INSTANCE.init(view.getContext());
++    }
++
++    // ---------------- touch ----------------
++
++    public boolean onTouchEvent(MotionEvent e) {
++        ControlsProfile profile = view.getProfile();
++        if (profile == null) return false;
++        if (DsrGameState.INSTANCE.getCutscene()) { skipTouch(e); return true; }
++        int am = e.getActionMasked();
++        switch (am) {
++            case MotionEvent.ACTION_DOWN:
++            case MotionEvent.ACTION_POINTER_DOWN: {
++                int i = e.getActionIndex();
++                down(profile, e.getPointerId(i), e.getX(i), e.getY(i), e.getEventTime());
++                break;
++            }
++            case MotionEvent.ACTION_MOVE:
++                for (int i = 0; i < e.getPointerCount(); i++) move(profile, e.getPointerId(i), e.getX(i), e.getY(i), e.getEventTime());
++                break;
++            case MotionEvent.ACTION_UP:
++            case MotionEvent.ACTION_POINTER_UP: {
++                int i = e.getActionIndex();
++                up(e.getPointerId(i), e.getX(i), e.getY(i), e.getEventTime(), false);
++                break;
++            }
++            case MotionEvent.ACTION_CANCEL:
++                for (int i = touches.size() - 1; i >= 0; i--) up(touches.keyAt(i), 0, 0, e.getEventTime(), true);
++                break;
++        }
++        view.invalidate();
++        return true;
++    }
++
++    private void down(ControlsProfile profile, int id, float x, float y, long time) {
++        Touch t = new Touch();
++        t.downX = t.stepX = x;
++        t.downY = t.curY = y;
++        t.curX = x;
++        t.downTime = time;
++        t.element = hit(profile, x, y);
++        ControlElement stick = find(profile, ControlElement.Type.STICK);
++        if (t.element != null) t.role = roleOf(t.element);
++        else if (stick != null && inStickZone(stick, x, y) && !stickActive()) t.role = Role.STICK;
++        else if (cameraPointer == -1) t.role = Role.CAMERA;
++        else return;   // a second free finger does nothing
++        touches.put(id, t);
++
++        switch (t.role) {
++            case STICK:
++                t.element = stick;
++                stickX = knobX = x;
++                stickY = knobY = y;
++                if (time - lastStickDown <= SPRINT_DOUBLE_TAP_MS) {   // double-tap + drag = sprint (B held)
++                    t.sprint = true;
++                    press(Binding.GAMEPAD_BUTTON_B, true);
++                }
++                lastStickDown = time;
++                break;
++            case ATTACK:
++                t.attack = AttackState.PENDING;
++                t.attackFire = () -> {
++                    if (t.attack == AttackState.PENDING) { t.attack = AttackState.FIRED; pulse(Binding.GAMEPAD_BUTTON_R1); }
++                };
++                view.postDelayed(t.attackFire, ATTACK_WINDOW_MS);
++                haptic();
++                break;
++            case BLOCK:
++                press(Binding.GAMEPAD_BUTTON_L1, true);
++                haptic();
++                break;
++            case ESTUS:
++                break;   // acts on swipe or on release
++            case INTERACT:
++            case BUTTON:
++                press(t.element.getBindingAt(0), true);
++                haptic();
++                break;
++            case CAMERA:
++                cameraPointer = id;
++                cameraLastX = x;
++                cameraLastY = y;
++                camVX = camVY = 0;
++                camLastMove = time;
++                break;
++        }
++    }
++
++    private void move(ControlsProfile profile, int id, float x, float y, long time) {
++        Touch t = touches.get(id);
++        if (t == null) return;
++        switch (t.role) {
++            case STICK: {
++                float r = t.element.getBoundingBox().width() * 0.5f;
++                float dx = x - stickX, dy = y - stickY;
++                float len = (float) Math.hypot(dx, dy);
++                if (len > r) { dx *= r / len; dy *= r / len; }
++                knobX = stickX + dx;
++                knobY = stickY + dy;
++                GamepadState s = profile.getGamepadState();
++                s.thumbLX = Mathf.clamp(dx / r, -1, 1);
++                s.thumbLY = Mathf.clamp(dy / r, -1, 1);
++                commit();
++                break;
++            }
++            case ATTACK: {
++                t.curX = x;
++                t.curY = y;
++                float rise = t.downY - y;
++                if (t.attack == AttackState.PENDING && rise >= STRONG_ARM_DP * dp) {
++                    t.attack = AttackState.STRONG;
++                    view.removeCallbacks(t.attackFire);
++                }
++                if (t.attack == AttackState.STRONG) {
++                    boolean armed = rise >= STRONG_FIRE_DP * dp;
++                    if (armed && !t.strongArmed) haptic();
++                    t.strongArmed = armed;
++                }
++                break;
++            }
++            case BLOCK: {
++                // parry = the heavy attack gesture on Block: slide up (still guarding), armed at STRONG_FIRE_DP
++                // (ember pulse), release = L2. The thumb circle + chevrons show the aim (user, 2026-10-15).
++                t.curX = x;
++                t.curY = y;
++                float rise = t.downY - y;
++                if (t.attack != AttackState.STRONG && rise >= STRONG_ARM_DP * dp) t.attack = AttackState.STRONG;
++                if (t.attack == AttackState.STRONG) {
++                    boolean armed = rise >= STRONG_FIRE_DP * dp;
++                    if (armed && !t.strongArmed) haptic();
++                    t.strongArmed = armed;
++                }
++                // slide onto Attack while blocking = guard attack (R1 with L1 held)
++                ControlElement over = hit(profile, x, y);
++                boolean onAttack = over != null && roleOf(over) == Role.ATTACK;
++                if (onAttack && !t.onAttack && t.attack != AttackState.STRONG) { pulse(Binding.GAMEPAD_BUTTON_R1); haptic(); }
++                t.onAttack = onAttack;
++                break;
++            }
++            case ESTUS: {
++                float dx = x - t.stepX;
++                float need = (t.swiped ? ESTUS_STEP_DP : SWIPE_DP) * dp;
++                while (Math.abs(dx) >= need) {
++                    t.swiped = true;
++                    estusStep(dx > 0 ? 1 : -1);
++                    t.stepX += Math.signum(dx) * need;
++                    dx = x - t.stepX;
++                    need = ESTUS_STEP_DP * dp;
++                }
++                break;
++            }
++            case BUTTON: {
++                // slide-through: a finger that slides onto another plain button presses it
++                ControlElement over = hit(profile, x, y);
++                if (over != null && over != t.element && roleOf(over) == Role.BUTTON) {
++                    press(t.element.getBindingAt(0), false);
++                    t.element = over;
++                    press(over.getBindingAt(0), true);
++                    haptic();
++                }
++                break;
++            }
++            case CAMERA: {
++                float dx = x - cameraLastX, dy = y - cameraLastY;
++                cameraLastX = x;
++                cameraLastY = y;
++                float dtMs = Math.max(4f, time - camLastMove);
++                camLastMove = time;
++                float a = 1f - (float) Math.exp(-dtMs / CAMERA_SMOOTH_MS);
++                camVX += a * (dx / dp / dtMs * 1000f - camVX);
++                camVY += a * (dy / dp / dtMs * 1000f - camVY);
++                applyCamera();
++                view.removeCallbacks(cameraIdle);
++                view.postDelayed(cameraIdle, CAMERA_TICK_MS);
++                break;
++            }
++            default:
++                break;
++        }
++    }
++
++    private void up(int id, float x, float y, long time, boolean cancel) {
++        Touch t = touches.get(id);
++        if (t == null) return;
++        touches.remove(id);
++        ControlsProfile profile = view.getProfile();
++        switch (t.role) {
++            case STICK:
++                stickX = Float.NaN;
++                if (profile != null) {
++                    GamepadState s = profile.getGamepadState();
++                    s.thumbLX = s.thumbLY = 0;
++                }
++                if (t.sprint) press(Binding.GAMEPAD_BUTTON_B, false);
++                commit();
++                break;
++            case ATTACK:
++                view.removeCallbacks(t.attackFire);
++                if (cancel) break;
++                if (t.attack == AttackState.PENDING) pulse(Binding.GAMEPAD_BUTTON_R1);   // lifted inside the window
++                else if (t.attack == AttackState.STRONG && t.strongArmed) pulse(Binding.GAMEPAD_BUTTON_R2);
++                break;
++            case BLOCK:
++                press(Binding.GAMEPAD_BUTTON_L1, false);
++                if (!cancel && t.attack == AttackState.STRONG && t.strongArmed) { pulse(Binding.GAMEPAD_BUTTON_L2); haptic(); }
++                break;
++            case ESTUS:
++                if (cancel || t.swiped) break;
++                if (estusSingleTap != null) {   // second tap inside 250 ms = use the item
++                    view.removeCallbacks(estusSingleTap);
++                    estusSingleTap = null;
++                    pulse(Binding.GAMEPAD_BUTTON_X);
++                } else {
++                    estusSingleTap = () -> { estusSingleTap = null; estusStep(1); };
++                    view.postDelayed(estusSingleTap, ESTUS_DOUBLE_TAP_MS);
++                }
++                haptic();
++                break;
++            case INTERACT:
++            case BUTTON:
++                press(t.element.getBindingAt(0), false);
++                break;
++            case CAMERA:
++                cameraPointer = -1;
++                view.removeCallbacks(cameraIdle);
++                view.postDelayed(cameraIdle, CAMERA_TICK_MS);   // ease out instead of a hard stop
++                boolean tap = time - t.downTime < FREE_TAP_MS && Math.hypot(x - t.downX, y - t.downY) < FREE_TAP_DP * dp;
++                // NPC conversation: a free tap = A (next line / pick the highlighted answer), not a lock-on
++                if (tap && !cancel) { if (DsrGameState.INSTANCE.getTalking()) pulse(Binding.GAMEPAD_BUTTON_A); else lockOn(x, y); }
++                break;
++        }
++    }
++
++    /** +1 = next quick item (d-pad down), -1 = previous. */
++    private void estusStep(int dir) {
++        // The game has only "next item": previous = next (filled quick slots - 1) times, one press per 120 ms
++        int presses = dir > 0 ? 1 : DsrGameState.INSTANCE.getQuickSlots() - 1;
++        for (int i = 0; i < presses; i++) view.postDelayed(() -> pulse(Binding.GAMEPAD_DPAD_DOWN), i * 120L);
++        haptic();
++    }
++
++    /**
++     * Tap on a free area. Design: lock onto the enemy nearest the tap (within 40 dp), tap again = release.
++     * TODO(DLL): needs enemy screen positions from the agent and a way to set the lock target
++     * (the app can't write game memory). For now R3 toggles lock-on; the game picks the target.
++     */
++    /**
++     * Tap-to-lock (docs/LOCKON.md): project the game's lock candidates with its camera, take the one within
++     * LOCK_TAP_DP of the finger and ask the agent to lock it (tap the locked one or empty space = unlock).
++     * Nothing near and not locked = R3: the game picks, like before.
++     */
++    private void lockOn(float x, float y) {
++        DsrGameState.LockScan s = DsrGameState.INSTANCE.getLockScan();
++        float[] g = view.dsrToScreenFraction(x, y);
++        float[] g2 = view.dsrToScreenFraction(x + LOCK_TAP_DP * dp, y);
++        if (s == null || g == null || g2 == null) { pulse(Binding.GAMEPAD_BUTTON_R3); return; }
++        float tol = Math.abs(g2[0] - g[0]) * s.getW();
++        DsrGameState.LockCandidate c = DsrGameState.INSTANCE.pickLockTarget(g[0] * s.getW(), g[1] * s.getH(), tol);
++        if (c != null && !(s.getLocked() && (c.getFlags() & 0x20) != 0)) {
++            sendLock(String.format(java.util.Locale.ROOT, "lock %x %x", c.getLockPoint(), c.getHandle()));
++        } else if (s.getLocked()) {
++            sendLock("unlock");
++        } else {
++            pulse(Binding.GAMEPAD_BUTTON_R3);
++        }
++        haptic();
++    }
++
++    private long lockSeq;
++
++    /** Request file for the agent (mod/dinput8/lock.c): temp file + rename, so it never reads half a line. */
++    private void sendLock(String cmd) {
++        java.io.File dir = DsrLauncher.INSTANCE.gameDir(view.getContext());
++        java.io.File tmp = new java.io.File(dir, "dsr_lock.tmp");
++        try (java.io.FileWriter w = new java.io.FileWriter(tmp)) {
++            w.write(++lockSeq + " " + cmd + "\n");
++        } catch (java.io.IOException e) {
++            Timber.tag("DSR").w(e, "lock request failed");
++            return;
++        }
++        if (!tmp.renameTo(new java.io.File(dir, "dsr_lock.txt"))) Timber.tag("DSR").w("lock request rename failed");
++        Timber.tag("DSR").i("lock request: %s", cmd);
++    }
++
++    /** Releases everything this layer holds (phase change, cancel). */
++    public void reset() {
++        for (int i = 0; i < touches.size(); i++) {
++            Touch t = touches.valueAt(i);
++            if (t.attackFire != null) view.removeCallbacks(t.attackFire);
++        }
++        touches.clear();
++        if (estusSingleTap != null) view.removeCallbacks(estusSingleTap);
++        estusSingleTap = null;
++        view.removeCallbacks(cameraIdle);
++        camVX = camVY = 0;
++        cameraPointer = -1;
++        stickX = Float.NaN;
++    }
++
++    // ---------------- helpers ----------------
++
++    private static Role roleOf(ControlElement el) {
++        if (el.getType() == ControlElement.Type.STICK) return Role.STICK;
++        switch (el.getBindingAt(0)) {
++            case GAMEPAD_BUTTON_R1: return Role.ATTACK;
++            case GAMEPAD_BUTTON_L1: return Role.BLOCK;
++            case GAMEPAD_DPAD_DOWN: return Role.ESTUS;
++            case GAMEPAD_BUTTON_A: return Role.INTERACT;
++            default: return Role.BUTTON;
++        }
++    }
++
++    private static ControlElement find(ControlsProfile profile, ControlElement.Type type) {
++        for (ControlElement el : profile.getElements()) if (el.getType() == type) return el;
++        return null;
++    }
++
++    /** Nearest button whose hit area (never below 48 dp) contains the point. Sticks are not buttons. */
++    private ControlElement hit(ControlsProfile profile, float x, float y) {
++        ControlElement best = null;
++        float bestDist = Float.MAX_VALUE;
++        float minHalf = MIN_HIT_DP * dp * 0.5f;
++        for (ControlElement el : profile.getElements()) {
++            if (el.getType() != ControlElement.Type.BUTTON || hidden(el)) continue;
++            Rect b = el.getBoundingBox();
++            float hw = Math.max(b.width() * 0.5f, minHalf), hh = Math.max(b.height() * 0.5f, minHalf);
++            if (roleOf(el) == Role.INTERACT && !pillRect.isEmpty()) hw = Math.max(hw, pillRect.width() * 0.5f);
++            float dx = x - el.getX(), dy = y - el.getY();
++            boolean inside = el.getShape() == ControlElement.Shape.CIRCLE
++                    ? dx * dx + dy * dy <= hw * hw
++                    : Math.abs(dx) <= hw && Math.abs(dy) <= hh;
++            float d = dx * dx + dy * dy;
++            if (inside && d < bestDist) { best = el; bestDist = d; }
++        }
++        return best;
++    }
++
++    private boolean inStickZone(ControlElement stick, float x, float y) {
++        return x <= stick.getX() + STICK_ZONE_RIGHT_DP * dp && y >= stick.getY() - STICK_ZONE_UP_DP * dp;
++    }
++
++    private boolean stickActive() {
++        for (int i = 0; i < touches.size(); i++) if (touches.valueAt(i).role == Role.STICK) return true;
++        return false;
++    }
++
++    /** Press start per binding: a release is held back until the press lasted MIN_HOLD_MS (the game polls once a frame). */
++    private final java.util.EnumMap<Binding, Long> pressedAt = new java.util.EnumMap<>(Binding.class);
++
++    private void press(Binding b, boolean down) {
++        long now = SystemClock.uptimeMillis();
++        if (down) {
++            pressedAt.put(b, now);
++        } else {
++            Long at = pressedAt.get(b);
++            if (at != null && now - at < MIN_HOLD_MS) {
++                view.postDelayed(() -> { if (at.equals(pressedAt.get(b))) press(b, false); }, MIN_HOLD_MS - (now - at));
++                return;
++            }
++            pressedAt.remove(b);
++        }
++        view.handleInputEvent(b, down);
++        commit();
++    }
++
++    private void pulse(Binding b) {
++        press(b, true);
++        view.postDelayed(() -> press(b, false), PULSE_MS);
++    }
++
++    private void setCamera(float x, float y) {
++        ControlsProfile profile = view.getProfile();
++        if (profile == null) return;
++        GamepadState s = profile.getGamepadState();
++        s.thumbRX = x;
++        s.thumbRY = y;
++        commit();
++    }
++
++    private void commit() {
++        view.dsrCommitGamepad();
++    }
++
++    private void haptic() {
++        view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
++    }
++
++    // ---------------- drawing ----------------
++
++    /** Draws the layer; fades in/out in 150 ms when gameplay starts/ends. */
++    public void draw(Canvas canvas, boolean gameplay) {
++        ControlsProfile profile = view.getProfile();
++        if (profile == null) return;
++        long now = SystemClock.uptimeMillis();
++        float step = lastDrawTime == 0 ? 16f / FADE_MS : Math.min(1, (now - lastDrawTime) / (float) FADE_MS);
++        lastDrawTime = now;
++        visibility = gameplay ? Math.min(1, visibility + step) : Math.max(0, visibility - step);
++        if (visibility > 0 && visibility < 1) view.postInvalidateOnAnimation();
++        if (visibility <= 0) { lastDrawTime = 0; return; }
++
++        float a = visibility * ALPHA_IDLE, held = visibility * ALPHA_TOUCHED;   // only the pressed control brightens
++        if (DsrGameState.INSTANCE.getCutscene()) { drawSkip(canvas); return; }
++        skipDone = false;
++        boolean prompt = promptUp();
++        float pStep = Math.min(1, step * FADE_MS / SWAP_MS);
++        promptMix = prompt ? Math.min(1, promptMix + pStep) : Math.max(0, promptMix - pStep);
++        if (promptMix > 0 && promptMix < 1) view.postInvalidateOnAnimation();
++        for (ControlElement el : profile.getElements()) {
++            Role role = roleOf(el);
++            float ea = role == Role.STICK ? (Float.isNaN(stickX) ? a : held) : isHeld(el) ? held : a;
++            if (role == Role.STICK) drawStick(canvas, el, ea);
++            else if (role == Role.INTERACT) { if (promptMix > 0) drawButton(canvas, el, role, ea * promptMix); }
++            else if (isRowSlot(el)) { if (promptMix < 1) drawButton(canvas, el, role, ea * (1 - promptMix) * (offHand(el) ? 0.4f : 1f)); }
++            else drawButton(canvas, el, role, ea);
++        }
++    }
++
++    /** Roll button label: B with the stick pushed rolls, with the stick idle it backsteps. */
++    private boolean stickPushed() {
++        if (Float.isNaN(stickX)) return false;
++        ControlsProfile profile = view.getProfile();
++        if (profile == null) return false;
++        for (ControlElement el : profile.getElements()) if (roleOf(el) == Role.STICK)
++            return Math.hypot(knobX - stickX, knobY - stickY) > el.getBoundingBox().width() * 0.5f * 0.2f;
++        return false;
++    }
++
++    /** Drawn pill bounds (it widens with the text); the hit test uses them. */
++    private final RectF pillRect = new RectF();
++
++    /** The game's own prompt text (tools/extract_assets.py prompts.json); "OK" for the item-get popup. */
++    private static String interactLabel(ControlElement el) {
++        int id = DsrGameState.INSTANCE.getActionPrompt();
++        if (id == 1) return "OK";
++        if (id == DsrGameState.TALK_PROMPT) return "Next";
++        String s = DsrAssets.INSTANCE.prompt(id);
++        return s != null ? s : el.getText();
++    }
++
++    /** Interact pill and the L-hand · spell · R-hand row share the bottom centre: the pill only while a prompt is up. */
++    private float promptMix;
++
++    private static boolean promptUp() {
++        return DsrGameState.INSTANCE.getActionPrompt() > 0;
++    }
++
++    private static boolean isRowSlot(ControlElement el) {
++        switch (el.getBindingAt(0)) {
++            case GAMEPAD_DPAD_LEFT: case GAMEPAD_DPAD_UP: case GAMEPAD_DPAD_RIGHT: return true;
++            default: return false;
++        }
++    }
++
++    /** While two-handing, the slot of the hand that is not used (the weapon on the back) is dimmed. */
++    private static boolean offHand(ControlElement el) {
++        DsrGameState.Loadout lo = DsrGameState.INSTANCE.getLoadout();
++        if (lo == null) return false;
++        Binding b = el.getBindingAt(0);
++        return lo.getStyle() == 3 && b == Binding.GAMEPAD_DPAD_LEFT || lo.getStyle() == 2 && b == Binding.GAMEPAD_DPAD_RIGHT;
++    }
++
++    private static boolean hidden(ControlElement el) {
++        return roleOf(el) == Role.INTERACT ? !promptUp() : isRowSlot(el) && promptUp();
++    }
++
++    private boolean isHeld(ControlElement el) {
++        for (int i = 0; i < touches.size(); i++) if (touches.valueAt(i).element == el) return true;
++        return false;
++    }
++
++    private Touch roleTouch(Role role) {
++        for (int i = 0; i < touches.size(); i++) if (touches.valueAt(i).role == role) return touches.valueAt(i);
++        return null;
++    }
++
++    private void drawButton(Canvas c, ControlElement el, Role role, float a) {
++        Rect b = el.getBoundingBox();
++        float cx = el.getX(), cy = el.getY();
++        boolean held = isHeld(el);
++        paint.setStyle(Paint.Style.FILL);
++        paint.setColor(argb(held ? FILL_PRESSED : FILL, a * 1.25f));
++        float corner;
++        if (el.getShape() == ControlElement.Shape.CIRCLE) {
++            corner = -1;
++            c.drawCircle(cx, cy, b.width() * 0.5f, paint);
++        } else {
++            corner = role == Role.INTERACT ? b.height() * 0.5f : el.getShape() == ControlElement.Shape.SQUARE ? 7 * dp : 10 * dp;
++            rect.set(b);
++            if (role == Role.INTERACT) {   // the pill grows to fit the game's prompt text
++                paint.setTextSize(b.height() * 0.34f);
++                float w = Math.max(b.width(), paint.measureText(interactLabel(el)) + b.height());
++                rect.set(cx - w * 0.5f, b.top, cx + w * 0.5f, b.bottom);
++                pillRect.set(rect);
++            }
++            c.drawRoundRect(rect, corner, corner, paint);
++        }
++        boolean skinned = drawSkin(c, el, role, corner, held, a);
++        if (!skinned) {
++            paint.setStyle(Paint.Style.STROKE);
++            paint.setStrokeWidth(1.4f * dp);
++            paint.setColor(argb(role == Role.ATTACK ? RIM_PRIMARY : RIM, a * 1.4f));
++            if (corner < 0) c.drawCircle(cx, cy, b.width() * 0.5f, paint);
++            else c.drawRoundRect(rect, corner, corner, paint);
++            if (role == Role.ATTACK) c.drawCircle(cx, cy, b.width() * 0.5f - 4 * dp, paint);   // double rim
++        }
++
++        // Attack / Block and the slots show the equipped items (game icons, tools/extract_assets.py); text without assets
++        boolean drewIcon = drawIcon(c, el, corner, a);
++        if (!drewIcon && role != Role.INTERACT && el.getBindingAt(0) == Binding.GAMEPAD_BUTTON_B) {
++            drawDodgeIcon(c, cx, cy, b.width() * 0.5f, stickPushed(), a);
++            drewIcon = true;
++        }
++        if (!drewIcon && el.getBindingAt(0) == Binding.GAMEPAD_BUTTON_Y) {
++            drawTwoHandIcon(c, cx, cy, b.width() * 0.5f, a);
++            drewIcon = true;
++        }
++        String label = role == Role.INTERACT ? interactLabel(el)
++                : el.getBindingAt(0) == Binding.GAMEPAD_BUTTON_B ? (stickPushed() ? "Roll" : "Backstep") : el.getText();
++        if (role == Role.INTERACT) {
++            drawInteractPulse(c, a);
++            paint.setStyle(Paint.Style.FILL);
++            paint.setColor(argb(INK, a * 1.8f));
++            float size = b.height() * 0.34f;
++            paint.setTextSize(size);
++            c.drawText(label, cx, cy + size * 0.35f, paint);
++        } else if (!drewIcon && label != null && !label.isEmpty() && !(skinned && el.getShape() == ControlElement.Shape.SQUARE)) {
++            // skinned square slot without an item (e.g. no spell) = the game's empty slot: frame only, no text
++            paint.setStyle(Paint.Style.FILL);
++            paint.setColor(argb(INK, a * 1.8f));
++            float size = Math.min(b.height() * 0.22f, b.width() * 1.3f / Math.max(4, label.length()));   // long labels ("Backstep") keep a margin
++            paint.setTextSize(size);
++            c.drawText(label, cx, cy + size * 0.35f, paint);
++        }
++
++        if (role == Role.ATTACK || role == Role.BLOCK) {
++            Touch t = roleTouch(role);
++            if (t != null && t.attack == AttackState.STRONG) {
++                if (t.strongArmed) drawStrongPulse(c, cx, cy, b.width() * 0.5f);
++                drawThumb(c, t, cx, cy, a, role == Role.BLOCK);
++            }
++        }
++    }
++
++    /**
++     * B = roll with the stick pushed, backstep without (the game's rule). Line icons in the label ink:
++     * roll = a circular arrow (a tumble); backstep = a figure facing right, hopping back to the left: leaning
++     * torso, legs in a stride, guard arm forward, speed lines on the side it left, ground line (user 2026-10-15:
++     * the two chevrons had no meaning).
++     */
++    private void drawDodgeIcon(Canvas c, float cx, float cy, float r, boolean roll, float a) {
++        paint.setStyle(Paint.Style.STROKE);
++        paint.setStrokeCap(Paint.Cap.ROUND);
++        paint.setStrokeJoin(Paint.Join.ROUND);
++        paint.setStrokeWidth(Math.max(2 * dp, r * 0.09f));
++        paint.setColor(argb(INK, a * 1.8f));
++        dodgePath.reset();
++        if (roll) {
++            float q = r * 0.42f;
++            iconRect.set(cx - q, cy - q, cx + q, cy + q);
++            dodgePath.addArc(iconRect, -60, 290);   // open circle, gap at the top right
++            c.drawPath(dodgePath, paint);
++            // arrowhead at the arc end (angle -60 + 290 = 230 deg), pointing along the turn (clockwise)
++            double e = Math.toRadians(230);
++            float ex = cx + q * (float) Math.cos(e), ey = cy + q * (float) Math.sin(e);
++            double tan = e + Math.PI / 2;   // clockwise tangent
++            float h = r * 0.2f;
++            dodgePath.reset();
++            dodgePath.moveTo(ex + h * (float) Math.cos(tan + 2.6), ey + h * (float) Math.sin(tan + 2.6));
++            dodgePath.lineTo(ex, ey);
++            dodgePath.lineTo(ex + h * (float) Math.cos(tan - 2.6), ey + h * (float) Math.sin(tan - 2.6));
++            c.drawPath(dodgePath, paint);
++        } else {
++            float k = r;   // all points in units of the button radius, figure centred a bit left of the middle
++            float ox = cx - 0.04f * k;
++            paint.setStrokeWidth(Math.max(2 * dp, r * 0.075f));
++            // torso: shoulders ahead of the hips (weight forward while the feet go back)
++            float shX = ox + 0.05f * k, shY = cy - 0.17f * k, hipX = ox - 0.07f * k, hipY = cy + 0.09f * k;
++            dodgePath.moveTo(shX, shY);
++            dodgePath.lineTo(hipX, hipY);
++            // legs: front foot planted ahead, back leg reaching back and down
++            dodgePath.moveTo(hipX, hipY);
++            dodgePath.lineTo(ox + 0.06f * k, cy + 0.24f * k);
++            dodgePath.lineTo(ox + 0.13f * k, cy + 0.38f * k);
++            dodgePath.moveTo(hipX, hipY);
++            dodgePath.lineTo(ox - 0.20f * k, cy + 0.22f * k);
++            dodgePath.lineTo(ox - 0.30f * k, cy + 0.34f * k);
++            // arms: guard arm forward, other arm swung back for balance
++            dodgePath.moveTo(shX, shY + 0.03f * k);
++            dodgePath.lineTo(ox + 0.20f * k, cy - 0.06f * k);
++            dodgePath.lineTo(ox + 0.27f * k, cy - 0.15f * k);
++            dodgePath.moveTo(shX, shY + 0.03f * k);
++            dodgePath.lineTo(ox - 0.14f * k, cy - 0.04f * k);
++            // ground line under the stride
++            dodgePath.moveTo(ox - 0.42f * k, cy + 0.40f * k);
++            dodgePath.lineTo(ox + 0.30f * k, cy + 0.40f * k);
++            c.drawPath(dodgePath, paint);
++            // head
++            paint.setStyle(Paint.Style.FILL);
++            c.drawCircle(ox + 0.11f * k, cy - 0.30f * k, 0.085f * k, paint);
++            // speed lines on the right: the side the figure just left
++            paint.setStyle(Paint.Style.STROKE);
++            paint.setStrokeWidth(Math.max(1.5f * dp, r * 0.05f));
++            paint.setColor(argb(INK, a * 1.1f));
++            dodgePath.reset();
++            for (int i = 0; i < 3; i++) {
++                float y = cy - 0.16f * k + i * 0.15f * k, x0 = ox + 0.32f * k + (i == 1 ? 0 : 0.05f * k);
++                dodgePath.moveTo(x0, y);
++                dodgePath.lineTo(x0 + 0.14f * k, y);
++            }
++            c.drawPath(dodgePath, paint);
++        }
++        paint.setStrokeCap(Paint.Cap.BUTT);
++    }
++
++    private final android.graphics.Path dodgePath = new android.graphics.Path();
++
++    /**
++     * Y = two-hand the weapon. Design H1, picked by the user 2026-10-15 (docs/ui/icons/twohand_h1.html):
++     * close-up of a greatsword's lower half (blade cut by the top edge, fuller, drooping crossguard with knobs,
++     * wrapped grip, pommel) gripped by two outline forearms, the left one high and the right one low.
++     * Drawn in the SVG's units (button circle radius 76), scaled to the button and clipped to it.
++     */
++    private final android.graphics.Path twoHandPath = new android.graphics.Path();
++    private void drawTwoHandIcon(Canvas c, float cx, float cy, float r, float a) {
++        float u = r / 76f, sw = 3.2f * u;
++        // two-handing on (game arm style, ChrIns+0xb20 = 2 / 3): the icon takes the ring's gold (user 2026-10-16)
++        DsrGameState.Loadout lo = DsrGameState.INSTANCE.getLoadout();
++        boolean on = lo != null && (lo.getStyle() == 2 || lo.getStyle() == 3);
++        int ink = on ? argb(BRONZE_LIT, Math.min(1f, a * 2.2f)) : argb(INK, a * 1.8f), dark = argb(0x1c1a17, Math.min(1f, a * 2.4f));
++        c.save();
++        twoHandPath.reset();
++        twoHandPath.addCircle(cx, cy, r - 2 * dp, android.graphics.Path.Direction.CW);
++        c.clipPath(twoHandPath);
++        c.translate(cx, cy);
++        c.scale(u, u);
++        paint.setStrokeJoin(Paint.Join.ROUND);
++        paint.setStrokeCap(Paint.Cap.ROUND);
++        float w = sw / u;   // stroke width in icon units
++        // blade with fuller
++        paint.setStyle(Paint.Style.STROKE);
++        paint.setColor(ink);
++        paint.setStrokeWidth(w);
++        twoHandPath.reset();
++        twoHandPath.moveTo(-17, -95); twoHandPath.lineTo(-17, -20); twoHandPath.lineTo(17, -20); twoHandPath.lineTo(17, -95);
++        c.drawPath(twoHandPath, paint);
++        paint.setStrokeWidth(w * 0.55f);
++        twoHandPath.reset();
++        twoHandPath.moveTo(-4, -95); twoHandPath.lineTo(-4, -34); twoHandPath.quadTo(0, -27, 4, -34); twoHandPath.lineTo(4, -95);
++        c.drawPath(twoHandPath, paint);
++        // crossguard
++        paint.setStyle(Paint.Style.FILL);
++        twoHandPath.reset();
++        twoHandPath.moveTo(-50, -12); twoHandPath.quadTo(-30, -22, 0, -21); twoHandPath.quadTo(30, -22, 50, -12);
++        twoHandPath.lineTo(48, -6); twoHandPath.quadTo(30, -12, 0, -11); twoHandPath.quadTo(-30, -12, -48, -6); twoHandPath.close();
++        c.drawPath(twoHandPath, paint);
++        c.drawCircle(-51, -8, 5, paint);
++        c.drawCircle(51, -8, 5, paint);
++        // grip + wrap lines
++        paint.setStyle(Paint.Style.STROKE);
++        paint.setStrokeWidth(w * 0.8f);
++        iconRect.set(-7, -10, 7, 48);
++        c.drawRoundRect(iconRect, 3, 3, paint);
++        paint.setStrokeWidth(w * 0.45f);
++        c.drawLine(-7, -2, 7, 4, paint);
++        c.drawLine(-7, 40, 7, 46, paint);
++        // pommel
++        paint.setStyle(Paint.Style.FILL);
++        iconRect.set(-11, 48, 11, 64);
++        c.drawOval(iconRect, paint);
++        paint.setColor(dark);
++        iconRect.set(-4.5f, 53, 4.5f, 59);
++        c.drawOval(iconRect, paint);
++        // arms: left high, right low (mirrored)
++        drawTwoHandArm(c, 1, 6, w, ink, dark);
++        drawTwoHandArm(c, -1, 27, w, ink, dark);
++        c.restore();
++        paint.setStrokeCap(Paint.Cap.BUTT);
++    }
++
++    /** One outline forearm from the button edge to a fist round the grip; dir 1 = from the left, -1 = right. */
++    private void drawTwoHandArm(Canvas c, float dir, float y, float w, int ink, int dark) {
++        c.save();
++        c.scale(dir, 1);
++        // forearm
++        twoHandPath.reset();
++        twoHandPath.moveTo(-95, y - 6); twoHandPath.lineTo(-40, y - 3); twoHandPath.lineTo(-40, y + 19); twoHandPath.lineTo(-95, y + 24);
++        paint.setStyle(Paint.Style.FILL); paint.setColor(dark); c.drawPath(twoHandPath, paint);
++        paint.setStyle(Paint.Style.STROKE); paint.setColor(ink); paint.setStrokeWidth(w); c.drawPath(twoHandPath, paint);
++        paint.setStrokeWidth(w * 0.6f);
++        c.drawLine(-46, y - 3.5f, -46, y + 19.5f, paint);   // wrist band
++        // fist over the grip
++        twoHandPath.reset();
++        twoHandPath.moveTo(-40, y - 3); twoHandPath.quadTo(-34, y - 6, -20, y - 5); twoHandPath.lineTo(8, y - 4);
++        twoHandPath.quadTo(15, y - 3, 15, y + 4); twoHandPath.lineTo(15, y + 12); twoHandPath.quadTo(15, y + 19, 8, y + 19);
++        twoHandPath.lineTo(-20, y + 19); twoHandPath.quadTo(-34, y + 20, -40, y + 19); twoHandPath.close();
++        paint.setStyle(Paint.Style.FILL); paint.setColor(dark); c.drawPath(twoHandPath, paint);
++        paint.setStyle(Paint.Style.STROKE); paint.setColor(ink); paint.setStrokeWidth(w); c.drawPath(twoHandPath, paint);
++        // knuckles + thumb
++        paint.setStrokeWidth(w * 0.5f);
++        c.drawLine(-1, y - 3, -1, y + 4, paint);
++        c.drawLine(6, y - 3, 6, y + 4, paint);
++        twoHandPath.reset();
++        twoHandPath.moveTo(-24, y + 2); twoHandPath.quadTo(-12, y + 1, -6, y + 6);
++        c.drawPath(twoHandPath, paint);
++        c.restore();
++    }
++
++    /**
++     * Interact pill (rest at bonfire, read message, pick up ...): a very subtle pulse so it catches the eye
++     * (user 2026-10-15). A bronze outline grows out of the rim and fades every INTERACT_PULSE_MS; redraws at
++     * ~30 FPS only while the pill is up.
++     */
++    private static final long INTERACT_PULSE_MS = 1800;
++    private final RectF pulseRect = new RectF();
++    private void drawInteractPulse(Canvas c, float a) {
++        if (pillRect.isEmpty()) return;
++        float t = (SystemClock.uptimeMillis() % INTERACT_PULSE_MS) / (float) INTERACT_PULSE_MS;   // 0..1
++        float grow = 7 * dp * t;
++        pulseRect.set(pillRect);
++        pulseRect.inset(-grow, -grow);
++        float corner = pulseRect.height() * 0.5f;
++        paint.setStyle(Paint.Style.STROKE);
++        paint.setStrokeWidth(1.6f * dp);
++        paint.setColor(argb(BRONZE_LIT, a * 0.55f * (1 - t) * (1 - t)));
++        c.drawRoundRect(pulseRect, corner, corner, paint);
++        view.postInvalidateDelayed(33);
++    }
++
++    /**
++     * Game HUD skin (tools/extract_assets.py UI_PIECES, cut from the user's own menu atlases): smoky slot background
++     * and bronze line frame for slots, the same background clipped round + bronze rims for circles, the souls-box
++     * parchment for pills. Drawn over the flat fill; returns false (flat look) when the pieces are missing.
++     */
++    private boolean drawSkin(Canvas c, ControlElement el, Role role, float corner, boolean held, float a) {
++        android.graphics.Bitmap bg = DsrAssets.INSTANCE.ui("slot_bg");
++        if (bg == null) return false;
++        Rect b = el.getBoundingBox();
++        float cx = el.getX(), cy = el.getY();
++        skinPaint.setAlpha(Math.round(255 * Math.min(1f, a * 2.2f)));
++        if (corner < 0) {   // circle: bronze rims over the flat fill (user: cleaner without the smoky texture)
++            float r = b.width() * 0.5f;
++            paint.setStyle(Paint.Style.STROKE);
++            paint.setStrokeWidth(2 * dp);
++            paint.setColor(argb(held ? BRONZE_LIT : BRONZE, Math.min(1f, a * 2f)));
++            c.drawCircle(cx, cy, r - 1 * dp, paint);
++            if (role == Role.ATTACK) {
++                paint.setStrokeWidth(1.2f * dp);
++                c.drawCircle(cx, cy, r - 5 * dp, paint);
++            }
++        } else if (el.getShape() == ControlElement.Shape.SQUARE) {   // slot: background + bronze bracket
++            float w = b.width(), h = b.height();
++            iconRect.set(b.left - w * 0.06f, b.top - h * 0.05f, b.right + w * 0.06f, b.bottom + h * 0.02f);
++            c.drawBitmap(bg, null, iconRect, skinPaint);
++            android.graphics.Bitmap plate = DsrAssets.INSTANCE.ui("plate");
++            if (plate != null) {   // stock layout: plate 7..84 x 79..109 of a 90 x 100 slot
++                iconRect.set(b.left + w * 0.08f, b.top + h * 0.72f, b.right - w * 0.08f, b.top + h * 1.0f);
++                c.drawBitmap(plate, null, iconRect, skinPaint);
++            }
++            android.graphics.Bitmap frame = DsrAssets.INSTANCE.ui("lineframe");
++            if (frame != null) {   // stock: 0..90 x -1..112 of a 90 x 100 slot; kept inside the slot (text sits below)
++                iconRect.set(b.left, b.top - h * 0.01f, b.right, b.bottom + h * 0.02f);
++                c.drawBitmap(frame, null, iconRect, skinPaint);
++            }
++            if (held) { paint.setStyle(Paint.Style.FILL); paint.setColor(argb(BRONZE_LIT, 0.18f)); c.drawRect(b, paint); }
++        } else {   // Interact pill and Menu: the Attack look (flat translucent fill + bronze rim), no parchment
++            // (user 2026-10-15: no dark parchment background on either)
++            paint.setStyle(Paint.Style.STROKE);
++            paint.setStrokeWidth(2 * dp);
++            paint.setColor(argb(held ? BRONZE_LIT : BRONZE, Math.min(1f, a * 2f)));
++            c.drawRoundRect(rect, corner, corner, paint);
++        }
++        return true;
++    }
++
++    private final Paint skinPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
++
++    private final RectF iconRect = new RectF();
++    private final android.graphics.Path clip = new android.graphics.Path();
++
++    /** Equipped item icon inside the control (circle: r * 0.78 like the design), plus a count badge for Estus / spells. */
++    private boolean drawIcon(Canvas c, ControlElement el, float corner, float a) {
++        DsrGameState.Loadout lo = DsrGameState.INSTANCE.getLoadout();
++        if (lo == null) return false;
++        android.graphics.Bitmap bmp;
++        int count = -1;
++        switch (el.getBindingAt(0)) {
++            case GAMEPAD_BUTTON_R1: bmp = DsrAssets.INSTANCE.icon(DsrAssets.WEAPON, lo.getTwoHanded() >= 0 ? lo.getTwoHanded() : lo.getRight()); break;
++            case GAMEPAD_DPAD_RIGHT: bmp = DsrAssets.INSTANCE.icon(DsrAssets.WEAPON, lo.getRight()); break;
++            // two-handing: L1 guards with the two-handed weapon, so Block shows it (the L-hand slot is dimmed in drawButton)
++            case GAMEPAD_BUTTON_L1: bmp = DsrAssets.INSTANCE.icon(DsrAssets.WEAPON, lo.getTwoHanded() >= 0 ? lo.getTwoHanded() : lo.getLeft()); break;
++            case GAMEPAD_DPAD_LEFT: bmp = DsrAssets.INSTANCE.icon(DsrAssets.WEAPON, lo.getLeft()); break;
++            case GAMEPAD_DPAD_UP: bmp = DsrAssets.INSTANCE.icon(DsrAssets.MAGIC, lo.getSpell()); count = lo.getSpell() >= 0 ? lo.getSpellCasts() : -1; break;
++            case GAMEPAD_DPAD_DOWN: bmp = DsrAssets.INSTANCE.icon(DsrAssets.GOODS, lo.getQuick()); count = lo.getQuick() >= 0 ? lo.getQuickCount() : -1; break;
++            default: return false;
++        }
++        if (bmp == null) return false;
++        Rect b = el.getBoundingBox();
++        float cx = el.getX(), cy = el.getY();
++        c.save();
++        clip.reset();
++        if (corner < 0) {
++            float r = b.width() * 0.5f * 0.78f;
++            clip.addCircle(cx, cy, r, android.graphics.Path.Direction.CW);
++            iconRect.set(cx - r, cy - r, cx + r, cy + r);
++        } else {
++            float in = 3 * dp;
++            iconRect.set(b.left + in, b.top + in, b.right - in, b.bottom - in);
++            clip.addRoundRect(iconRect, Math.max(0, corner - in), Math.max(0, corner - in), android.graphics.Path.Direction.CW);
++        }
++        c.clipPath(clip);
++        iconPaint.setAlpha(Math.round(255 * Math.min(1f, a * 2f)));
++        c.drawBitmap(bmp, null, iconRect, iconPaint);
++        c.restore();
++        if (count >= 0) {
++            String s = Integer.toString(count);
++            paint.setStyle(Paint.Style.FILL);
++            paint.setTextSize(11 * dp);
++            float w = paint.measureText(s) + 8 * dp, h = 15 * dp;
++            rect.set(b.right - w - 2 * dp, b.bottom - h - 2 * dp, b.right - 2 * dp, b.bottom - 2 * dp);
++            paint.setColor(argb(0x050505, Math.min(1f, a * 1.8f)));
++            c.drawRoundRect(rect, 3 * dp, 3 * dp, paint);
++            paint.setColor(argb(INK, Math.min(1f, a * 2.2f)));
++            c.drawText(s, rect.centerX(), rect.bottom - 4 * dp, paint);
++        }
++        return true;
++    }
++
++    private final Paint iconPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
++
++    /** Strong attack (swipe up from Attack): a small circle under the thumb, the chevrons riding above it. Bone white
++     *  while rising, ember orange once armed (release = R2). */
++    private void drawThumb(Canvas c, Touch t, float cx, float cy, float a, boolean parry) {
++        boolean armed = t.strongArmed;
++        float r = THUMB_DP * dp;
++        paint.setStyle(Paint.Style.FILL);
++        paint.setColor(argb(armed ? EMBER : FILL_PRESSED, armed ? 0.55f : a * 1.25f));
++        c.drawCircle(t.curX, t.curY, r, paint);
++        paint.setStyle(Paint.Style.STROKE);
++        paint.setStrokeWidth(1.6f * dp);
++        paint.setColor(argb(armed ? EMBER : RIM_PRIMARY, armed ? 1f : a * 1.6f));
++        c.drawCircle(t.curX, t.curY, r, paint);
++        drawChevronTrail(c, cx, cy, t.curX, t.curY, r, armed, a);
++        drawGestureIcon(c, t.curX, t.curY, r * 0.62f, parry, armed, a);
++    }
++
++    /**
++     * Icon in the thumb circle: heavy attack = a sword striking down with two impact lines, parry = a shield with a
++     * deflection spark. Line icons in the rim colour, ember once armed.
++     */
++    private void drawGestureIcon(Canvas c, float x, float y, float s, boolean parry, boolean armed, float a) {
++        paint.setStyle(Paint.Style.STROKE);
++        paint.setStrokeCap(Paint.Cap.ROUND);
++        paint.setStrokeJoin(Paint.Join.ROUND);
++        paint.setStrokeWidth(Math.max(1.6f * dp, s * 0.14f));
++        paint.setColor(argb(armed ? EMBER : RIM_PRIMARY, armed ? 1f : a * 1.8f));
++        dodgePath.reset();
++        if (parry) {
++            // shield: flat top, sides curving to a point at the bottom
++            float w = s * 0.62f, top = y - s * 0.75f, bottom = y + s * 0.85f;
++            dodgePath.moveTo(x - w, top);
++            dodgePath.lineTo(x + w, top);
++            dodgePath.quadTo(x + w, y + s * 0.35f, x, bottom);
++            dodgePath.quadTo(x - w, y + s * 0.35f, x - w, top);
++            c.drawPath(dodgePath, paint);
++            // spark off the top right corner: three short rays
++            float sx = x + w * 1.05f, sy = top - s * 0.05f;
++            c.drawLine(sx + s * 0.18f, sy - s * 0.18f, sx + s * 0.45f, sy - s * 0.45f, paint);
++            c.drawLine(sx + s * 0.25f, sy + s * 0.02f, sx + s * 0.55f, sy + s * 0.02f, paint);
++            c.drawLine(sx + s * 0.02f, sy - s * 0.25f, sx + s * 0.02f, sy - s * 0.55f, paint);
++        } else {
++            // sword pointing down: blade, cross-guard, grip
++            float tip = y + s * 0.9f, guard = y - s * 0.35f;
++            c.drawLine(x, guard, x, tip, paint);
++            c.drawLine(x - s * 0.42f, guard, x + s * 0.42f, guard, paint);
++            c.drawLine(x, guard, x, y - s * 0.8f, paint);
++            // impact lines at the tip
++            c.drawLine(x - s * 0.35f, tip - s * 0.05f, x - s * 0.75f, tip - s * 0.3f, paint);
++            c.drawLine(x + s * 0.35f, tip - s * 0.05f, x + s * 0.75f, tip - s * 0.3f, paint);
++        }
++        paint.setStrokeCap(Paint.Cap.BUTT);
++    }
++
++    /** Three chevrons on the line from the Attack button centre to the thumb circle, pointing at the thumb. */
++    private void drawChevronTrail(Canvas c, float fromX, float fromY, float toX, float toY, float thumbR, boolean armed, float a) {
++        float dx = toX - fromX, dy = toY - fromY;
++        float len = (float) Math.hypot(dx, dy) - thumbR * 1.15f;   // stop short of the thumb circle
++        if (len < 6 * dp) return;
++        float size = Math.min(9 * dp, len / 5);
++        c.save();
++        c.translate(fromX, fromY);
++        c.rotate((float) Math.toDegrees(Math.atan2(dy, dx)) + 90);   // local -y = towards the thumb
++        paint.setStyle(Paint.Style.STROKE);
++        paint.setStrokeCap(Paint.Cap.ROUND);
++        paint.setStrokeWidth(2.6f * dp);
++        paint.setColor(argb(armed ? EMBER : RIM_PRIMARY, armed ? 1f : a * 1.6f));
++        for (int i = 1; i <= 3; i++) {
++            float y = -len * i / 3.6f;
++            c.drawLine(-size, y + size * 0.55f, 0, y - size * 0.45f, paint);
++            c.drawLine(0, y - size * 0.45f, size, y + size * 0.55f, paint);
++        }
++        paint.setStrokeCap(Paint.Cap.BUTT);
++        c.restore();
++    }
++
++    /** Armed strong attack: an ember ring pulses out of the Attack button until release. */
++    private void drawStrongPulse(Canvas c, float cx, float cy, float r) {
++        float phase = (SystemClock.uptimeMillis() % EMBER_PULSE_MS) / (float) EMBER_PULSE_MS;   // 0..1, repeats
++        paint.setStyle(Paint.Style.FILL);
++        paint.setColor(argb(EMBER, 0.22f + 0.18f * (float) Math.sin(phase * 2 * Math.PI)));
++        c.drawCircle(cx, cy, r, paint);
++        paint.setStyle(Paint.Style.STROKE);
++        paint.setStrokeWidth(3 * dp * (1 - phase) + 1 * dp);
++        paint.setColor(argb(EMBER, 0.9f * (1 - phase)));
++        c.drawCircle(cx, cy, r + phase * 14 * dp, paint);
++        paint.setStrokeWidth(2 * dp);
++        paint.setColor(argb(EMBER, 0.95f));
++        c.drawCircle(cx, cy, r, paint);
++        view.postInvalidateOnAnimation();
++    }
++
++    private void drawStick(Canvas c, ControlElement el, float a) {
++        float r = el.getBoundingBox().width() * 0.5f;
++        boolean active = !Float.isNaN(stickX);
++        float cx = active ? stickX : el.getX(), cy = active ? stickY : el.getY();
++        android.graphics.Bitmap bg = DsrAssets.INSTANCE.ui("slot_bg");   // skin present: bronze rims, no texture
++        paint.setStyle(Paint.Style.FILL);
++        paint.setColor(argb(FILL, a));
++        c.drawCircle(cx, cy, r, paint);
++        paint.setStyle(Paint.Style.STROKE);
++        paint.setStrokeWidth((bg != null ? 2 : 1.4f) * dp);
++        paint.setColor(bg != null ? argb(active ? BRONZE_LIT : BRONZE, Math.min(1f, a * 2f)) : argb(RIM, a * 1.4f));
++        c.drawCircle(cx, cy, r, paint);
++        float kx = active ? knobX : cx, ky = active ? knobY : cy;
++        paint.setStyle(Paint.Style.FILL);
++        paint.setColor(bg != null ? argb(0x2a2620, Math.min(1f, a * 2f)) : argb(KNOB, a * (active ? 1.2f : 0.8f)));
++        c.drawCircle(kx, ky, r * 0.42f, paint);
++        if (bg != null) {
++            paint.setStyle(Paint.Style.STROKE);
++            paint.setStrokeWidth(2 * dp);
++            paint.setColor(argb(active ? BRONZE_LIT : BRONZE, Math.min(1f, a * 2.2f)));
++            c.drawCircle(kx, ky, r * 0.42f, paint);
++        }
++    }
++
++    // ---------------- cutscene skip ----------------
++
++    /**
++     * Cutscene (DsrGameState.cutscene): only a round Skip button, top right. Hold it SKIP_HOLD_MS: a bronze ring
++     * fills and the centre counts down (2.0 .. 0.1 s); releasing resets it. Then Start, the game's skip input
++     * (user 2026-10-15: hold 2 s, a visible countdown, reset on release). One Start per cutscene.
++     */
++    private static final long SKIP_HOLD_MS = 2000;
++    private static final float SKIP_R_DP = 38f, SKIP_MARGIN_DP = 28f;
++    private int skipPointer = -1;
++    private long skipDownAt;
++    private boolean skipDone;
++    private final Runnable skipFire = new Runnable() { @Override public void run() { skipNow(); } };
++    private void skipNow() {
++        if (skipPointer < 0 || skipDone) return;
++        skipDone = true;
++        skipPointer = -1;
++        haptic();
++        timber.log.Timber.tag("DSR").i("cutscene skip: Start");
++        pulse(Binding.GAMEPAD_BUTTON_START);
++        view.invalidate();
++    }
++
++    private float skipX() { return view.getWidth() - (SKIP_MARGIN_DP + SKIP_R_DP) * dp; }
++    private float skipY() { return (SKIP_MARGIN_DP + SKIP_R_DP) * dp; }
++
++    private void skipTouch(MotionEvent e) {
++        int am = e.getActionMasked(), i = e.getActionIndex();
++        if (am == MotionEvent.ACTION_DOWN || am == MotionEvent.ACTION_POINTER_DOWN) {
++            float r = SKIP_R_DP * dp * 1.4f;   // generous hit area
++            if (skipPointer < 0 && !skipDone && Math.hypot(e.getX(i) - skipX(), e.getY(i) - skipY()) <= r) {
++                skipPointer = e.getPointerId(i);
++                skipDownAt = SystemClock.uptimeMillis();
++                view.postDelayed(skipFire, SKIP_HOLD_MS);
++                haptic();
++            }
++        } else if (am == MotionEvent.ACTION_UP || am == MotionEvent.ACTION_POINTER_UP || am == MotionEvent.ACTION_CANCEL) {
++            if (am == MotionEvent.ACTION_CANCEL || e.getPointerId(i) == skipPointer) {
++                skipPointer = -1;
++                view.removeCallbacks(skipFire);
++            }
++        }
++        view.invalidate();
++    }
++
++    private void drawSkip(Canvas c) {
++        float cx = skipX(), cy = skipY(), r = SKIP_R_DP * dp, v = visibility;
++        boolean holding = skipPointer >= 0;
++        long held = holding ? Math.min(SKIP_HOLD_MS, SystemClock.uptimeMillis() - skipDownAt) : 0;
++        // body
++        paint.setStyle(Paint.Style.FILL);
++        paint.setColor(argb(holding ? FILL_PRESSED : FILL, v * 0.6f));
++        c.drawCircle(cx, cy, r, paint);
++        paint.setStyle(Paint.Style.STROKE);
++        paint.setStrokeWidth(2 * dp);
++        paint.setColor(argb(BRONZE, v * 0.9f));
++        c.drawCircle(cx, cy, r, paint);
++        // progress ring
++        if (held > 0) {
++            paint.setStrokeWidth(4 * dp);
++            paint.setStrokeCap(Paint.Cap.ROUND);
++            paint.setColor(argb(BRONZE_LIT, v));
++            rect.set(cx - r + 3 * dp, cy - r + 3 * dp, cx + r - 3 * dp, cy + r - 3 * dp);
++            c.drawArc(rect, -90, 360f * held / SKIP_HOLD_MS, false, paint);
++            paint.setStrokeCap(Paint.Cap.BUTT);
++        }
++        // centre: "Skip" idle, the seconds left while held
++        paint.setStyle(Paint.Style.FILL);
++        paint.setColor(argb(INK, v * 0.95f));
++        String label;
++        if (skipDone) label = "...";
++        else if (holding) label = String.format(java.util.Locale.US, "%.1f", Math.max(0.1f, (SKIP_HOLD_MS - held) / 1000f));
++        else label = "Skip";
++        paint.setTextSize((holding ? 20 : 17) * dp);
++        c.drawText(label, cx, cy - (paint.descent() + paint.ascent()) / 2, paint);
++        // caption under the button
++        if (!holding && !skipDone) {
++            paint.setTextSize(11 * dp);
++            paint.setColor(argb(INK, v * 0.7f));
++            c.drawText("hold", cx, cy + r + 15 * dp, paint);
++        }
++        if (holding) view.postInvalidateOnAnimation();
++    }
++
++    private static int argb(int rgb, float alpha) {
++        return ((int) (Math.min(1f, alpha) * 255) << 24) | (rgb & 0xffffff);
++    }
++}
+diff --git a/app/src/main/java/app/gamenative/ui/PluviaMain.kt b/app/src/main/java/app/gamenative/ui/PluviaMain.kt
+index 50f6437c..db6893d6 100644
+--- a/app/src/main/java/app/gamenative/ui/PluviaMain.kt
++++ b/app/src/main/java/app/gamenative/ui/PluviaMain.kt
+@@ -48,6 +48,7 @@ import androidx.navigation.compose.composable
+ import androidx.navigation.compose.rememberNavController
+ import androidx.navigation.navArgument
+ import androidx.navigation.navDeepLink
++import app.gamenative.BuildConfig
+ import app.gamenative.MainActivity
+ import app.gamenative.NetworkMonitor
+ import app.gamenative.PluviaApp
+@@ -639,7 +640,8 @@ fun PluviaMain(
+     LaunchedEffect(Unit) {
+         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+             // Only attempt reconnection if not already connected/connecting and not in offline mode
+-            val shouldAttemptReconnect = !state.isSteamConnected &&
++            val shouldAttemptReconnect = !BuildConfig.DSR_MODE &&
++                !state.isSteamConnected &&
+                 !isConnecting &&
+                 !SteamService.keepAlive
+ 
+@@ -1153,6 +1155,8 @@ fun PluviaMain(
+ 
+             val startDestination = rememberSaveable {
+                 when {
++                    // single-game build: never show the store login screen
++                    BuildConfig.DSR_MODE -> PluviaScreen.Home.route + "?offline=true"
+                     SteamService.isLoggedIn -> PluviaScreen.Home.route + "?offline=false"
+                     // skip login screen if any service has stored credentials
+                     SteamUtils.hasStoredCredentials() ||
+diff --git a/app/src/main/java/app/gamenative/ui/components/BootingSplash.kt b/app/src/main/java/app/gamenative/ui/components/BootingSplash.kt
+index 7c9c37f1..05ea2638 100644
+--- a/app/src/main/java/app/gamenative/ui/components/BootingSplash.kt
++++ b/app/src/main/java/app/gamenative/ui/components/BootingSplash.kt
+@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.tooling.preview.Preview
+ import androidx.compose.ui.unit.dp
+ import androidx.compose.ui.unit.sp
++import app.gamenative.BuildConfig
+ import app.gamenative.R
+ import app.gamenative.ui.theme.BrandGradient
+ import app.gamenative.ui.theme.PluviaTheme
+@@ -57,7 +58,7 @@ fun BootingSplash(
+     // Tips rotation (no animation cost, safe outside visibility check)
+     val context = LocalContext.current
+     val tips = remember(context) {
+-        listOf(
++        if (BuildConfig.DSR_MODE) emptyList() else listOf(
+             context.getString(R.string.game_launch_tip_1),
+             context.getString(R.string.game_launch_tip_2, context.getString(R.string.option_open_container)),
+             context.getString(R.string.game_launch_tip_3),
+@@ -225,7 +226,7 @@ fun BootingSplash(
+                 ) {
+                     // Glow layer (blurred behind)
+                     Text(
+-                text = "OpenNative",
++                text = context.getString(R.string.app_name),
+                         style = MaterialTheme.typography.displaySmall.copy(
+                             fontWeight = FontWeight.Bold,
+                             fontSize = 36.sp,
+@@ -240,7 +241,7 @@ fun BootingSplash(
+ 
+                     // Main logo text
+                     Text(
+-                text = "OpenNative",
++                text = context.getString(R.string.app_name),
+                         style = MaterialTheme.typography.displaySmall.copy(
+                             fontWeight = FontWeight.Bold,
+                             fontSize = 36.sp,
+diff --git a/app/src/main/java/app/gamenative/ui/screen/xserver/XServerScreen.kt b/app/src/main/java/app/gamenative/ui/screen/xserver/XServerScreen.kt
+index a29f45f2..361a9e81 100644
+--- a/app/src/main/java/app/gamenative/ui/screen/xserver/XServerScreen.kt
++++ b/app/src/main/java/app/gamenative/ui/screen/xserver/XServerScreen.kt
+@@ -1,5 +1,6 @@
+ package app.gamenative.ui.screen.xserver
+ 
++import app.gamenative.dsr.DsrGameState
+ import android.app.Activity
+ import android.app.ActivityManager
+ import android.content.Context
+@@ -251,7 +252,9 @@ private const val EXIT_PROCESS_POLL_INTERVAL_MS = 1_000L
+ private const val EXIT_PROCESS_RESPONSE_TIMEOUT_MS = 2_000L
+ private const val QUICK_MENU_PROCESS_POLL_INTERVAL_MS = 2_000L
+ private const val DEFAULT_FPS_LIMITER_MAX_HZ = 60
+-private const val DEFAULT_FPS_LIMITER_TARGET_HZ = 60
++// DSR: 30 FPS cap (user 2026-10-17, after a 60 FPS test: 33-46 FPS under thermal throttling, uneven). This limiter
++// is the cap: the game's pacer does not hold 30. Game speed stays real-time at any FPS (agent per-frame tick).
++private const val DEFAULT_FPS_LIMITER_TARGET_HZ = 30
+ private const val FPS_LIMITER_ENABLED_EXTRA = "fpsLimiterEnabled"
+ private const val FPS_LIMITER_TARGET_EXTRA = "fpsLimiterTarget"
+ 
+@@ -259,8 +262,7 @@ private fun initialFpsLimiterEnabled(container: Container): Boolean =
+     parseBooleanExtra(container.getExtra(FPS_LIMITER_ENABLED_EXTRA)) ?: true
+ 
+ private fun initialFpsLimiterTarget(container: Container): Int =
+-    parsePositiveFpsLimit(container.getExtra(FPS_LIMITER_TARGET_EXTRA))
+-        ?: DEFAULT_FPS_LIMITER_TARGET_HZ
++    parsePositiveFpsLimit(container.getExtra(FPS_LIMITER_TARGET_EXTRA)) ?: DEFAULT_FPS_LIMITER_TARGET_HZ
+ 
+ private fun detectMaxRefreshRateHz(context: Context, attachedView: View?): Int {
+     val display = attachedView?.display
+@@ -637,8 +639,9 @@ fun XServerScreen(
+             showCpuUsage = PrefManager.performanceHudShowCpuUsage,
+             showGpuUsage = PrefManager.performanceHudShowGpuUsage,
+             showRamUsage = PrefManager.performanceHudShowRamUsage,
+-            showBatteryLevel = PrefManager.performanceHudShowBatteryLevel,
+-            showPowerDraw = PrefManager.performanceHudShowPowerDraw,
++            // DSR: one short line (FPS CPU GPU RAM temps); battery and power draw left out (user, 2026-10-15)
++            showBatteryLevel = !app.gamenative.BuildConfig.DSR_MODE && PrefManager.performanceHudShowBatteryLevel,
++            showPowerDraw = !app.gamenative.BuildConfig.DSR_MODE && PrefManager.performanceHudShowPowerDraw,
+             showBatteryRuntime = PrefManager.performanceHudShowBatteryRuntime,
+             showBatteryTemperature = PrefManager.performanceHudShowBatteryTemperature,
+             showClockTime = PrefManager.performanceHudShowClockTime,
+@@ -797,8 +800,9 @@ fun XServerScreen(
+         val maxX = (host.width - hud.width).coerceAtLeast(0).toFloat()
+         val maxY = (host.height - hud.height).coerceAtLeast(0).toFloat()
+         val margin = 12 * context.resources.displayMetrics.density
+-        val savedX = PrefManager.performanceHudXFraction
+-        val savedY = PrefManager.performanceHudYFraction
++        // DSR: always start top-left (the slot above the Estus slot / HP bar); a drag moves it for the session only
++        val savedX = -1f
++        val savedY = -1f
+ 
+         hud.x = if (savedX in 0f..1f) maxX * savedX else margin.coerceAtMost(maxX)
+         hud.y = if (savedY in 0f..1f) maxY * savedY else margin.coerceAtMost(maxY)
+@@ -871,7 +875,7 @@ fun XServerScreen(
+                 }
+             },
+             initialConfig = performanceHudConfig,
+-            initialCompactMode = PrefManager.performanceHudCompactMode,
++            initialCompactMode = true,   // DSR: always one inline row (FPS · CPU · GPU ...) above the Estus slot
+         )
+         val layoutParams = FrameLayout.LayoutParams(
+             FrameLayout.LayoutParams.WRAP_CONTENT,
+@@ -1047,7 +1051,21 @@ fun XServerScreen(
+         controllerSlotStatusVersion++
+         xServerView?.getxServer()?.winHandler?.refreshControllerMappingsForHotplug()
+ 
+-        if (!usingScreenMirror &&
++        // DSR: no generic gamepad overlay; the game gets its own context-aware touch layer
++        if (BuildConfig.DSR_MODE && !usingScreenMirror && !areControlsVisible) {
++            // InputControlsView draws/owns touches only while DsrGameState reports gameplay
++            // copied fresh each launch: elements are read from the profiles dir, and asset updates
++            // only sync there on app-version changes
++            val dsrProfileFile = java.io.File(InputControlsManager.getProfilesDir(context), "controls-6.icp")
++            com.winlator.core.FileUtils.copy(context, "inputcontrols/profiles/controls-6.icp", dsrProfileFile)
++            val dsrProfile = InputControlsManager.loadProfile(context, dsrProfileFile)
++            if (dsrProfile != null) {
++                showInputControls(dsrProfile, xServerView!!.getxServer().winHandler, container)
++                areControlsVisible = true
++            }
++            DsrGameState.start()
++        }
++        if (!BuildConfig.DSR_MODE && !usingScreenMirror &&
+             !hasInternalTouchpad && !hasPhysicalMouse && !hasPhysicalKeyboard && !hasPhysicalController &&
+             !container.isTouchscreenMode) {
+             val manager = PluviaApp.inputControlsManager
+@@ -1330,7 +1348,7 @@ fun XServerScreen(
+ 
+                     // Re-evaluate whether to show on-screen controls
+                     // (same logic as scanForExternalDevices startup path)
+-                    if (!hasPhysicalController && !hasPhysicalKeyboard &&
++                    if (!BuildConfig.DSR_MODE && !hasPhysicalController && !hasPhysicalKeyboard &&
+                         !hasPhysicalMouse && !hasInternalTouchpad) {
+                         val manager = PluviaApp.inputControlsManager
+                         val profiles = manager?.getProfiles(false) ?: listOf()
+@@ -1446,6 +1464,9 @@ fun XServerScreen(
+             return@gameBack
+         }
+ 
++        // DSR: back = Start in gameplay, B in menus; the quick menu opens from the title screen
++        if (BuildConfig.DSR_MODE && PluviaApp.inputControlsView?.dsrBack() == true) return@gameBack
++
+         Timber.i("BackHandler")
+ 
+         val controllerManager = ControllerManager.getInstance()
+@@ -1804,7 +1825,9 @@ fun XServerScreen(
+             .fillMaxSize()
+             .pointerHoverIcon(PointerIcon.Default)
+             .pointerInteropFilter { event ->
+-                val hud = performanceHudView
++                // DSR: the resource monitor never takes touches (its view is wider than the visible strip and a tap
++                // there toggled its layout and swallowed game taps); it stays one inline row top-left
++                val hud: PerformanceHudView? = null
+                 if (hud != null) {
+                     when (event.actionMasked) {
+                         MotionEvent.ACTION_DOWN -> {
+@@ -2623,13 +2646,16 @@ fun XServerScreen(
+                         // 3. Else if physical mouse/keyboard detected → hide
+                         // 4. Else → show
+                         val shouldShowControls = when {
++                            BuildConfig.DSR_MODE -> false
+                             container.isTouchscreenMode -> false
+                             hasPhysicalController -> false
+                             hasPhysicalKeyboard || hasPhysicalMouse -> false
+                             else -> true
+                         }
+ 
+-                        if (shouldShowControls) {
++                        if (BuildConfig.DSR_MODE) {
++                            // DSR: the overlay stays attached; it hides itself outside gameplay (DsrGameState)
++                        } else if (shouldShowControls) {
+                             Timber.d("Auto-showing onscreen controls")
+                             showInputControls(profile, xServerView.getxServer().winHandler, container)
+                             areControlsVisible = true
+@@ -4810,6 +4836,7 @@ private fun exit(
+         }
+     }
+     frameRating?.writeSessionSummary()
++    if (BuildConfig.DSR_MODE) DsrGameState.stop()
+ 
+     if (MainActivity.wasLaunchedViaExternalIntent) {
+         Timber.i("[IntentLaunch]: Waiting for exit handling before returning to external launcher")
+diff --git a/app/src/main/java/app/gamenative/ui/widget/PerformanceHudView.kt b/app/src/main/java/app/gamenative/ui/widget/PerformanceHudView.kt
+index 28868187..e770d5d7 100644
+--- a/app/src/main/java/app/gamenative/ui/widget/PerformanceHudView.kt
++++ b/app/src/main/java/app/gamenative/ui/widget/PerformanceHudView.kt
+@@ -184,14 +184,32 @@ class PerformanceHudView(
+         }
+     }
+ 
++    // DSR: hidden while an in-game menu is open (it sits over the centred menu's header and the big tabs)
++    // shown again only after 400 ms out of menus: the menu state blinks off for a moment while switching tabs
++    private var dsrLastMenuAt = 0L
++    private val dsrMenuWatch = object : Runnable {
++        override fun run() {
++            val now = android.os.SystemClock.uptimeMillis()
++            if (app.gamenative.BuildConfig.DSR_MODE &&
++                app.gamenative.dsr.DsrGameState.phase == app.gamenative.dsr.DsrGameState.Phase.MENU) dsrLastMenuAt = now
++            // alpha, not visibility: the screen code re-applies visibility on its own updates (the monitor
++            // reappeared over System / Options)
++            val a = if (now - dsrLastMenuAt < 400) 0f else 1f
++            if (alpha != a) alpha = a
++            postDelayed(this, 150)
++        }
++    }
++
+     override fun onAttachedToWindow() {
+         super.onAttachedToWindow()
+         if (!isPaused) {
+             startUpdates()
+         }
++        post(dsrMenuWatch)
+     }
+ 
+     override fun onDetachedFromWindow() {
++        removeCallbacks(dsrMenuWatch)
+         stopUpdates()
+         super.onDetachedFromWindow()
+     }
+diff --git a/app/src/main/java/app/gamenative/utils/ContainerUtils.kt b/app/src/main/java/app/gamenative/utils/ContainerUtils.kt
+index 193330a9..6ccdd04a 100644
+--- a/app/src/main/java/app/gamenative/utils/ContainerUtils.kt
++++ b/app/src/main/java/app/gamenative/utils/ContainerUtils.kt
+@@ -11,6 +11,7 @@ import app.gamenative.service.SteamService
+ import app.gamenative.service.amazon.AmazonService
+ import app.gamenative.service.epic.EpicService
+ import app.gamenative.service.gog.GOGService
++import com.winlator.box86_64.Box86_64Preset
+ import com.winlator.container.Container
+ import com.winlator.container.ContainerData
+ import com.winlator.container.ContainerManager
+@@ -93,6 +94,30 @@ object ContainerUtils {
+             DefaultVersion.STEAM_TYPE = Container.STEAM_TYPE_LIGHT
+             DefaultVersion.ASYNC_CACHE = "0"
+         }
++
++        // DSR: FEX/ARM64EC loops in exception handling on the game's anti-tamper; x86_64 Proton + Box64 boots
++        if (BuildConfig.DSR_MODE) {
++            DefaultVersion.WINE_VERSION = "proton-9.0-x86_64"
++            PrefManager.wineVersion = "proton-9.0-x86_64"
++            PrefManager.emulator = "Box64"
++            // 0.4.4 is bundled in assets/box86_64; PERFORMANCE is safe once targetSdk 28 removes the W^X fault storm
++            PrefManager.box64Version = "0.4.4"
++            PrefManager.box64Preset = Box86_64Preset.PERFORMANCE
++            // dinput8 = the in-game agent (DsrLauncher.installAgent). DIRTY=2: no fault storm on the anti-tamper's
++            // code-page writes (+10% FPS); CALLRET=2 handles returns into modified blocks; logging off.
++            val ev = EnvVars(PrefManager.envVars)
++            ev.put("WINEDLLOVERRIDES", "dinput8=n,b")
++            ev.put("BOX64_DYNAREC_DIRTY", "2")
++            ev.put("BOX64_DYNAREC_CALLRET", "2")
++            ev.put("BOX64_DYNAREC_WEAKBARRIER", "2")
++            ev.put("BOX64_DYNAREC_SAFEFLAGS", "0")   // -10% CPU per frame (A/B 2026-10-14), no visible issue
++            ev.put("BOX64_LOG", "0")
++            ev.put("BOX64_DYNAREC_MISSING", "0")
++            PrefManager.envVars = ev.toString()
++            // dev phone setup made by hand (2026-10-13..16), now baked in (converter builds start clean):
++            // game on the middle cores (A720 on the Flip6: not the slow A520s, not the hot prime core)
++            app.gamenative.dsr.DsrLauncher.gameCpuList()?.let { PrefManager.cpuList = it }
++        }
+     }
+ 
+     fun getGPUCards(context: Context): Map<Int, GpuInfo> {
+diff --git a/app/src/main/java/com/winlator/container/Container.java b/app/src/main/java/com/winlator/container/Container.java
+index 88060991..607908c4 100644
+--- a/app/src/main/java/com/winlator/container/Container.java
++++ b/app/src/main/java/com/winlator/container/Container.java
+@@ -133,9 +133,9 @@ public class Container {
+     // Disable external mouse input
+     private boolean disableMouseInput = false;
+     // Touchscreen mode (defaults on for XR builds)
+-    private boolean touchscreenMode = app.gamenative.BuildConfig.XR_BUILD;
++    private boolean touchscreenMode = app.gamenative.BuildConfig.XR_BUILD || app.gamenative.BuildConfig.DSR_MODE;
+     // Shooter mode
+-    private boolean shooterMode = true;
++    private boolean shooterMode = !app.gamenative.BuildConfig.DSR_MODE;
+     // Serialised JSON gesture configuration (used when touchscreenMode is true)
+     private String gestureConfig = "";
+     // Serialised JSON shooter mode configuration (used when shooterMode is true)
+diff --git a/app/src/main/java/com/winlator/container/ContainerData.kt b/app/src/main/java/com/winlator/container/ContainerData.kt
+index 4f4e5952..50a0e694 100644
+--- a/app/src/main/java/com/winlator/container/ContainerData.kt
++++ b/app/src/main/java/com/winlator/container/ContainerData.kt
+@@ -79,9 +79,9 @@ data class ContainerData(
+     /** Disable external mouse input **/
+     val disableMouseInput: Boolean = false,
+     /** Touchscreen mode (defaults on for XR builds) **/
+-    val touchscreenMode: Boolean = app.gamenative.BuildConfig.XR_BUILD,
++    val touchscreenMode: Boolean = app.gamenative.BuildConfig.XR_BUILD || app.gamenative.BuildConfig.DSR_MODE,
+     /** Shooter mode (auto-replace sticks with dynamic joysticks) **/
+-    val shooterMode: Boolean = true,
++    val shooterMode: Boolean = !app.gamenative.BuildConfig.DSR_MODE,
+     /** Serialised JSON gesture configuration (used when touchscreenMode is true) **/
+     val gestureConfig: String = "",
+     /** Serialised JSON shooter mode configuration (used when shooterMode is true) **/
+diff --git a/app/src/main/java/com/winlator/inputcontrols/ControlsProfile.java b/app/src/main/java/com/winlator/inputcontrols/ControlsProfile.java
+index e545375f..6bc5d5b8 100644
+--- a/app/src/main/java/com/winlator/inputcontrols/ControlsProfile.java
++++ b/app/src/main/java/com/winlator/inputcontrols/ControlsProfile.java
+@@ -231,6 +231,22 @@ public class ControlsProfile implements Comparable<ControlsProfile> {
+         return controllers;
+     }
+ 
++    /** DSR: the 2H button sits on the Menu button's centre line, whatever either profile y says. */
++    private void anchorTwoHandToMenu() {
++        ControlElement twoHand = null, menu = null;
++        for (ControlElement e : elements) {
++            if ("2H".equals(e.getText())) twoHand = e;
++            else if ("Menu".equals(e.getText())) menu = e;
++        }
++        if (twoHand == null || menu == null) return;
++        twoHand.setY(menu.getY());
++        // diameter = Menu height: circle half-size 3 snap units x scale, round rect half-height 2 x scale (getBoundingBox)
++        twoHand.setScale(menu.getScale() * 2f / 3f);
++        // left of Menu with a gap (the bigger circle touched the Menu button, user 2026-10-15)
++        int gap = Math.max(1, menu.getBoundingBox().height() / 6);
++        twoHand.setX(menu.getBoundingBox().left - gap - twoHand.getBoundingBox().width() / 2);
++    }
++
+     public void loadElements(InputControlsView inputControlsView) {
+         elements.clear();
+         elementsLoaded = false;
+@@ -306,6 +322,7 @@ public class ControlsProfile implements Comparable<ControlsProfile> {
+                 if (!virtualGamepad && hasGamepadBinding) virtualGamepad = true;
+                 elements.add(element);
+             }
++            if (app.gamenative.BuildConfig.DSR_MODE) anchorTwoHandToMenu();
+             elementsLoaded = true;
+             Log.d("ControlsProfile", "Loaded " + elements.size() + " elements for profile: " + name + " (virtualGamepad: " + virtualGamepad + ")");
+         }
+diff --git a/app/src/main/java/com/winlator/widget/FrameRating.java b/app/src/main/java/com/winlator/widget/FrameRating.java
+index f9001094..fa1b8dcb 100644
+--- a/app/src/main/java/com/winlator/widget/FrameRating.java
++++ b/app/src/main/java/com/winlator/widget/FrameRating.java
+@@ -54,8 +54,22 @@ public class FrameRating extends FrameLayout implements Runnable {
+         addView(view);
+     }
+ 
++    // DSR: FPS to logcat every 2 s (tag DSRFPS) for scripted benchmarks over adb
++    private int dsrLogFrames = 0;
++    private long dsrLogStart = 0;
++
+     public void update() {
+         FrameTimeRing.record();
++        if (app.gamenative.BuildConfig.DSR_MODE) {
++            long now = SystemClock.elapsedRealtime();
++            if (dsrLogStart == 0) dsrLogStart = now;
++            dsrLogFrames++;
++            if (now - dsrLogStart >= 2000) {
++                android.util.Log.i("DSRFPS", String.format(Locale.ENGLISH, "%.1f", dsrLogFrames * 1000f / (now - dsrLogStart)));
++                dsrLogFrames = 0;
++                dsrLogStart = now;
++            }
++        }
+         if (getVisibility() != VISIBLE) {
+             frameCount++;
+             return;
+diff --git a/app/src/main/java/com/winlator/widget/InputControlsView.java b/app/src/main/java/com/winlator/widget/InputControlsView.java
+index 7faf1b35..b25b303c 100644
+--- a/app/src/main/java/com/winlator/widget/InputControlsView.java
++++ b/app/src/main/java/com/winlator/widget/InputControlsView.java
+@@ -202,7 +202,7 @@ public class InputControlsView extends View {
+ 
+         if (profile != null) {
+             if (!profile.isElementsLoaded()) profile.loadElements(this);
+-            if (showTouchscreenControls) {
++            if (showTouchscreenControls && (!app.gamenative.BuildConfig.DSR_MODE || editMode)) {
+                 for (ControlElement element : profile.getElements()) {
+                     // Hide STICK elements replaced by container shooter mode
+                     if (isStickHiddenByShooterMode(element)) continue;
+@@ -211,6 +211,14 @@ public class InputControlsView extends View {
+             }
+         }
+ 
++        if (app.gamenative.BuildConfig.DSR_MODE && !editMode && profile != null) {
++            boolean gameplay = app.gamenative.dsr.DsrGameState.INSTANCE.isGameplay();
++            if (showTouchscreenControls) dsrControls().draw(canvas, gameplay);
++            if (!gameplay && app.gamenative.dsr.DsrGameState.INSTANCE.getPhase() != app.gamenative.dsr.DsrGameState.Phase.NOT_RUNNING) {
++                dsrDrawMenuButtons(canvas);
++            }
++        }
++
+         // Draw dynamic joysticks when shooter mode is active
+         boolean anyShooterActive = shooterModeActive || containerShooterModeRuntime;
+         if (anyShooterActive && joystickPointerId != -1) {
+@@ -389,6 +397,8 @@ public class InputControlsView extends View {
+ 
+     @Override
+     protected void onDetachedFromWindow() {
++        removeCallbacks(dsrPhaseWatch);
++        if (dsrControls != null) dsrControls.reset();
+         cancelTouchRouting();
+         if (mouseMoveTimer != null)
+             mouseMoveTimer.cancel();
+@@ -1209,6 +1219,10 @@ public class InputControlsView extends View {
+             }
+         }
+ 
++        if (!editMode && profile != null && app.gamenative.BuildConfig.DSR_MODE && dsrHandleTouch(event)) {
++            return true;
++        }
++
+         if (!editMode && profile != null) {
+             int actionIndex = event.getActionIndex();
+             int pointerId = event.getPointerId(actionIndex);
+@@ -1352,6 +1366,569 @@ public class InputControlsView extends View {
+         return true;
+     }
+ 
++    // ---------------- Dark Souls touch layer ----------------
++    // Gameplay: app.gamenative.dsr.DsrTouchControls draws the controls and owns every touch
++    // (layout from controls-6.icp, behaviour from design/final_wanted_controls.html).
++    // Menus/title/loading: gameplay controls hidden; ✓/✕ buttons, swipe = d-pad, tap = mouse click.
++    private static final float DSR_TAP_SLOP_PX = 24f;
++    private app.gamenative.dsr.DsrTouchControls dsrControls;
++    private app.gamenative.dsr.DsrGameState.Phase dsrLastPhase;
++    private boolean dsrLastPrompt;
++    private Object dsrLastLoadout;
++    private long dsrNoticeSince, dsrNoticeAAt;
++    private int dsrNoticePresses;
++    private boolean dsrLastCutscene;
++    private int dsrLastCharStep;
++    private boolean dsrKeyboardUp;
++
++    /**
++     * Character creation name field (MenuMan 0x1e: 5 = "Enter character name" box, 7 = typing): the app presses OK on
++     * the box itself and opens the Android keyboard while the field takes keys; it hides it when typing ends
++     * (user 2026-10-16: no Keyboard button, the keyboard pops up by itself).
++     */
++    private void dsrCharMakeWatch() {
++        app.gamenative.dsr.DsrGameState g = app.gamenative.dsr.DsrGameState.INSTANCE;
++        boolean charMake = g.getPhase() == app.gamenative.dsr.DsrGameState.Phase.MENU
++                && g.getMenuScreen() == app.gamenative.dsr.DsrGameState.MenuScreen.CHAR_MAKE;
++        int step = charMake ? g.getCharMakeStep() : 0;
++        if (step == dsrLastCharStep) return;
++        timber.log.Timber.tag("DSR").i("char make step %d -> %d", dsrLastCharStep, step);
++        if (step == 5) postDelayed(() -> dsrPadTap(Binding.GAMEPAD_BUTTON_A), 450);   // OK on the name box
++        if (step == 7 && !dsrKeyboardUp) { dsrKeyboardUp = true; triggerShowKeyboard(); }
++        if (step != 7 && dsrKeyboardUp) {
++            dsrKeyboardUp = false;
++            android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager)
++                    getContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
++            if (imm != null) imm.hideSoftInputFromWindow(getWindowToken(), 0);
++        }
++        dsrLastCharStep = step;
++    }
++    private final Runnable dsrPhaseWatch = new Runnable() {
++        @Override public void run() {
++            app.gamenative.dsr.DsrGameState.Phase ph = app.gamenative.dsr.DsrGameState.INSTANCE.getPhase();
++            boolean prompt = app.gamenative.dsr.DsrGameState.INSTANCE.getActionPrompt() > 0;
++            Object loadout = app.gamenative.dsr.DsrGameState.INSTANCE.getLoadout();
++            if (loadout != null && !loadout.equals(dsrLastLoadout)) { dsrLastLoadout = loadout; invalidate(); }   // slot icons / counts
++            Object screen = app.gamenative.dsr.DsrGameState.INSTANCE.getMenuScreen().name() + app.gamenative.dsr.DsrGameState.INSTANCE.getTitleSubScreen() + app.gamenative.dsr.DsrGameState.INSTANCE.getTitleOptionPage();
++            if (!screen.equals(dsrLastMenuScreen)) { dsrLastMenuScreen = screen; invalidate(); }   // menu action buttons
++            dsrCharMakeWatch();
++            // cutscene start / end: drop held gameplay input (stick, block ...), swap the layer to / from the Skip button
++            boolean cut = app.gamenative.dsr.DsrGameState.INSTANCE.getCutscene();
++            if (cut != dsrLastCutscene) { dsrLastCutscene = cut; dsrReleaseAll(); invalidate(); }
++            if (ph != dsrLastPhase || prompt != dsrLastPrompt) {
++                if (ph != dsrLastPhase && dsrLastPhase == app.gamenative.dsr.DsrGameState.Phase.GAMEPLAY) dsrReleaseAll();
++                dsrLastPhase = ph;
++                dsrLastPrompt = prompt;   // Interact pill <-> slot row swap
++                invalidate();
++            }
++            // "Game will start in offline mode." (first general dialog of a run): A every 700 ms while it is up
++            if (app.gamenative.dsr.DsrGameState.INSTANCE.getStartupNoticeUp()) {
++                long now = android.os.SystemClock.uptimeMillis();
++                if (dsrNoticeSince == 0) dsrNoticeSince = now;
++                if (now - dsrNoticeSince >= 300 && now - dsrNoticeAAt >= 700 && dsrNoticePresses < 8) {
++                    dsrNoticeAAt = now;
++                    dsrNoticePresses++;
++                    timber.log.Timber.tag("DSR").i("startup notice: A #%d", dsrNoticePresses);
++                    dsrPadTap(Binding.GAMEPAD_BUTTON_A);
++                }
++            } else dsrNoticeSince = 0;
++            postDelayed(this, 60);
++        }
++    };
++
++    private app.gamenative.dsr.DsrTouchControls dsrControls() {
++        if (dsrControls == null) dsrControls = new app.gamenative.dsr.DsrTouchControls(this);
++        return dsrControls;
++    }
++
++    @Override
++    protected void onAttachedToWindow() {
++        super.onAttachedToWindow();
++        if (app.gamenative.BuildConfig.DSR_MODE) post(dsrPhaseWatch);
++    }
++
++    /** @return true when the DSR layer consumed the event (caller must not route it again). */
++    private boolean dsrHandleTouch(MotionEvent event) {
++        if (!app.gamenative.dsr.DsrGameState.INSTANCE.isGameplay()) {
++            dsrMenuTouch(event);
++            return true;
++        }
++        return dsrControls().onTouchEvent(event);
++    }
++
++    /**
++     * Android back gesture in DSR mode: Start in gameplay (open menu), B in menus (cancel).
++     * @return false on the title/loading screens, so back still opens the app's quick menu there.
++     */
++    public boolean dsrBack() {
++        Binding b;
++        switch (app.gamenative.dsr.DsrGameState.INSTANCE.getPhase()) {
++            case GAMEPLAY: b = Binding.GAMEPAD_BUTTON_START; break;
++            case MENU: b = Binding.GAMEPAD_BUTTON_B; break;
++            default: return false;
++        }
++        if (profile == null) return false;
++        handleInputEvent(b, true); dsrCommitGamepad();
++        postDelayed(() -> { handleInputEvent(b, false); dsrCommitGamepad(); }, 80);
++        return true;
++    }
++
++    // Menus (spec: tap = click, drag = scroll): a tap = mouse hover, then click ~70 ms later (DSR selects on hover);
++    // swipe = d-pad steps; one Back button (= B, the gamepad twin of Q / Esc) in the bottom-right corner.
++    // The title ignores the mouse: see the TITLE branch in dsrMenuTouch.
++    private static final float DSR_SWIPE_STEP_PX = 90f;
++    private Object dsrLastMenuScreen;
++    private float dsrMenuDownX, dsrMenuDownY, dsrMenuStepX, dsrMenuStepY;
++    private boolean dsrMenuSwiped;
++    private int dsrMenuAxis;                       // swipe axis, fixed at swipe start: 1 vertical, 2 horizontal
++    private android.view.VelocityTracker dsrMenuVel;
++    private boolean dsrHoverPending;
++    private static final long DSR_HOVER_DELAY_MS = 110;   // finger still this long after touch-down = hover
++    private final Runnable dsrHoverRun = () -> {
++        if (!dsrHoverPending) return;
++        dsrHoverPending = false;
++        dsrPointerTo(dsrMenuDownX, dsrMenuDownY);
++        dsrHoverAt = android.os.SystemClock.uptimeMillis();
++    };
++    private long dsrHoverAt;
++    private Binding dsrMenuHeldButton;
++    private final android.graphics.Paint dsrMenuPaint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
++    private final android.graphics.RectF dsrBackRect = new android.graphics.RectF();
++
++    /** Back button bounds: bottom-right corner, under the right thumb (the game menus use the top-right corner). */
++    private android.graphics.RectF dsrBackButton() {
++        float w = getWidth(), h = getHeight(), bh = h * 0.13f, bw = bh * 2.3f, m = h * 0.04f;
++        dsrBackRect.set(w - m - bw, h - m - bh, w - m, h - m);
++        return dsrBackRect;
++    }
++
++    /**
++     * Action buttons stacked above Back, replacing the hidden key-guide line (tools/patch_menu.py). Rows, tabs and
++     * option arrows are tapped directly (tap = A); these cover the other keys, per screen:
++     * inventory X "Display" / Y "Status", equipment X "Remove" / Y "Status", option pages d-pad right / left (value).
++     */
++    private Binding[] dsrMenuActions() {
++        // Back only where it does something: in-game menus, title sub-screens. Not on the title list, "Touch to
++        // Start" or loading screens.
++        app.gamenative.dsr.DsrGameState gs = app.gamenative.dsr.DsrGameState.INSTANCE;
++        boolean menu = gs.getPhase() == app.gamenative.dsr.DsrGameState.Phase.MENU;
++        if (!menu) {
++            if (gs.getPhase() != app.gamenative.dsr.DsrGameState.Phase.TITLE || !gs.getTitleSubScreen()) return new Binding[0];
++            // title option pages (user 2026-10-16: the game's < > are tiny): Back + ◀ ▶ like the in-game Options
++            return gs.getTitleOptionPage()
++                    ? new Binding[]{Binding.GAMEPAD_BUTTON_B, Binding.GAMEPAD_DPAD_RIGHT, Binding.GAMEPAD_DPAD_LEFT}
++                    : new Binding[]{Binding.GAMEPAD_BUTTON_B};
++        }
++        switch (app.gamenative.dsr.DsrGameState.INSTANCE.getMenuScreen()) {
++            case INVENTORY: case EQUIPMENT: return new Binding[]{Binding.GAMEPAD_BUTTON_B, Binding.GAMEPAD_BUTTON_X, Binding.GAMEPAD_BUTTON_Y};
++            case OPTIONS: return new Binding[]{Binding.GAMEPAD_BUTTON_B, Binding.GAMEPAD_DPAD_RIGHT, Binding.GAMEPAD_DPAD_LEFT};
++            // character creation (user 2026-10-16): the window sits left (patch_menu.py T02 / T03 shift), the free right
++            // side holds Select (A) + Back, Keyboard (name field), ▼, ◀ ▶, ▲
++            // (no Keyboard button: the keyboard opens by itself on the name field, dsrCharMakeWatch)
++            case CHAR_MAKE: return new Binding[]{Binding.GAMEPAD_BUTTON_A, Binding.GAMEPAD_BUTTON_B,
++                    Binding.GAMEPAD_DPAD_DOWN, Binding.GAMEPAD_DPAD_LEFT, Binding.GAMEPAD_DPAD_RIGHT, Binding.GAMEPAD_DPAD_UP};
++            // bonfire list: no Back, the list has its own Leave entry (user 2026-10-16)
++            case BONFIRE: return new Binding[0];
++            // Level Up (user 2026-10-16): Accept in the corner, Back above it, a d-pad cross above that (▲ ▼ pick the
++            // stat, ◀ ▶ = - / +). KEY_ENTER = marker for Accept: a click on the game's ACCEPT entry (dsrLevelUpAccept)
++            case LEVEL_UP: return new Binding[]{Binding.KEY_ENTER, Binding.GAMEPAD_BUTTON_B, Binding.GAMEPAD_DPAD_UP,
++                    Binding.GAMEPAD_DPAD_DOWN, Binding.GAMEPAD_DPAD_LEFT, Binding.GAMEPAD_DPAD_RIGHT};
++            default: return new Binding[]{Binding.GAMEPAD_BUTTON_B};
++        }
++    }
++
++    private String dsrMenuLabel(Binding b) {
++        switch (b) {
++            case GAMEPAD_BUTTON_B: return "Back";
++            case GAMEPAD_BUTTON_Y: return "Status";
++            case GAMEPAD_BUTTON_X:
++                return app.gamenative.dsr.DsrGameState.INSTANCE.getMenuScreen() == app.gamenative.dsr.DsrGameState.MenuScreen.EQUIPMENT ? "Remove" : "Display";
++            case GAMEPAD_DPAD_RIGHT: return "▶";
++            case GAMEPAD_DPAD_LEFT: return "◀";
++            case GAMEPAD_DPAD_UP: return "▲";
++            case GAMEPAD_DPAD_DOWN: return "▼";
++            case KEY_ENTER: return "Accept";
++            case GAMEPAD_BUTTON_A: return "Select";
++            case SHOW_KEYBOARD: return "Keyboard";
++            default: return "";
++        }
++    }
++
++    private int dsrMenuActionCount() { return dsrMenuActions().length; }
++
++    /** Action button i (dsrMenuActions order): Back in the corner, the others stacked above it. */
++    private android.graphics.RectF dsrMenuAction(int i) {
++        android.graphics.RectF r = new android.graphics.RectF(dsrBackButton());
++        float step = r.height() * 1.18f;
++        if (app.gamenative.dsr.DsrGameState.INSTANCE.getMenuScreen() == app.gamenative.dsr.DsrGameState.MenuScreen.CHAR_MAKE) {
++            // free strip right of the moved window: design x 1030 (centred 1280x720 space) to the right margin.
++            // Rows bottom-up: Back | Select, ▼, ◀ | ▶, ▲ (taller rows: there is room without the Keyboard button)
++            float unit = getHeight() / 720f, off = (getWidth() / unit - 1280f) / 2f;
++            r.left = (1030 + off) * unit;
++            float grow = r.height() * 0.25f;
++            r.top -= grow;
++            step = r.height() * 1.15f;
++            int row = i <= 1 ? 0 : i == 2 ? 1 : i <= 4 ? 2 : 3;
++            r.offset(0, -step * row);
++            if (i == 0 || i == 1 || i == 3 || i == 4) {
++                float gap = r.height() * 0.1f, half = (r.width() - gap) / 2f;
++                if (i == 1 || i == 3) r.right = r.left + half; else r.left = r.right - half;
++            }
++            return r;
++        }
++        if (i >= 2 && app.gamenative.dsr.DsrGameState.INSTANCE.getMenuScreen() == app.gamenative.dsr.DsrGameState.MenuScreen.LEVEL_UP) {
++            // above Back (user 2026-10-16: big buttons): wide ▼ (3), then ◀ (4) ▶ (5) squares side by side, then wide ▲ (2)
++            int row = i == 3 ? 2 : i == 2 ? 4 : 3;
++            r.offset(0, -step * row);
++            if (i == 4 || i == 5) {
++                float gap = r.height() * 0.12f, half = (r.width() - gap) / 2f;
++                if (i == 4) r.right = r.left + half; else r.left = r.right - half;
++            }
++            return r;
++        }
++        r.offset(0, -step * i);
++        return r;
++    }
++
++    /** Index of the action button under (x, y), or -1. */
++    private int dsrMenuButtonAt(float x, float y) {
++        for (int i = 0; i < dsrMenuActionCount(); i++) {
++            android.graphics.RectF r = dsrMenuAction(i);
++            float pad = r.height() * 0.08f;
++            if (x >= r.left - pad && x <= r.right + pad && y >= r.top - pad && y <= r.bottom + pad) return i;
++        }
++        return -1;
++    }
++
++    /**
++     * Big tab buttons (Inventory, Equipment, Status, System) in the free strip left of the centred menu: a tap clicks
++     * the game's own small tab icon (DRB R00-00 icon_* at x 930/977/1026/1074, y 88 in the centred 1280x720 space).
++     */
++    private static final float[] DSR_TAB_X = {930, 977, 1026, 1074};
++    private static final float DSR_TAB_Y = 88;
++
++    private boolean dsrTabsShown() {
++        return app.gamenative.dsr.DsrGameState.INSTANCE.getPhase() == app.gamenative.dsr.DsrGameState.Phase.MENU
++                && app.gamenative.dsr.DsrGameState.INSTANCE.getMenuScreen() != app.gamenative.dsr.DsrGameState.MenuScreen.OTHER
++                // option pages are sub-screens of System: the game ignores tab clicks there
++                && app.gamenative.dsr.DsrGameState.INSTANCE.getMenuScreen() != app.gamenative.dsr.DsrGameState.MenuScreen.OPTIONS
++                && app.gamenative.dsr.DsrGameState.INSTANCE.getMenuScreen() != app.gamenative.dsr.DsrGameState.MenuScreen.BONFIRE
++                && app.gamenative.dsr.DsrGameState.INSTANCE.getMenuScreen() != app.gamenative.dsr.DsrGameState.MenuScreen.LEVEL_UP
++                && app.gamenative.dsr.DsrGameState.INSTANCE.getMenuScreen() != app.gamenative.dsr.DsrGameState.MenuScreen.CHAR_MAKE;
++    }
++
++    private android.graphics.RectF dsrTab(int i) {
++        float h = getHeight(), size = h * 0.18f, x = getWidth() * 0.012f + h * 0.03f, y = h * 0.14f;
++        return new android.graphics.RectF(x, y + i * size * 1.1f, x + size, y + i * size * 1.1f + size);
++    }
++
++    private int dsrTabAt(float x, float y) {
++        if (!dsrTabsShown()) return -1;
++        for (int i = 0; i < 4; i++) if (dsrTab(i).contains(x, y)) return i;
++        return -1;
++    }
++
++    /** Click the game's tab icon i (mouse hover + click, then park the pointer). */
++    // optimistic highlight: the tapped tab lights at once; the game switches ~0.3-0.5 s later (DsrGameState poll)
++    private int dsrPendingTab = -1;
++    private long dsrPendingTabAt;
++
++    /**
++     * Level Up "Accept": click the game's ACCEPT entry under the stat list (centred 1280x720 design space,
++     * (271, 599), measured on the phone 2026-10-16), then park the pointer.
++     */
++    private void dsrLevelUpAccept() {
++        float unit = getHeight() / 720f, off = (getWidth() / unit - 1280f) / 2f;
++        dsrPointerTo((271 + off) * unit, 599 * unit);
++        dsrClick(Pointer.Button.BUTTON_LEFT, 140);
++        postDelayed(this::dsrParkPointer, 350);
++    }
++
++    private void dsrClickTab(int i) {
++        dsrPendingTab = i;
++        dsrPendingTabAt = android.os.SystemClock.uptimeMillis();
++        invalidate();
++        postDelayed(this::invalidate, 1600);
++        float unit = getHeight() / 720f, off = (getWidth() / unit - 1280f) / 2f;
++        dsrPointerTo((DSR_TAB_X[i] + off) * unit, DSR_TAB_Y * unit);
++        dsrClick(Pointer.Button.BUTTON_LEFT, 140);   // longer hover: the first click after the bar opens got lost
++        postDelayed(this::dsrParkPointer, 350);
++    }
++
++    private void dsrDrawTabs(Canvas canvas) {
++        if (!dsrTabsShown()) return;
++        int active = app.gamenative.dsr.DsrGameState.INSTANCE.getMenuScreen().getTab();
++        if (dsrPendingTab >= 0 && active != dsrPendingTab && android.os.SystemClock.uptimeMillis() - dsrPendingTabAt < 1500) active = dsrPendingTab;
++        else dsrPendingTab = -1;
++        android.graphics.Bitmap bg = app.gamenative.dsr.DsrAssets.INSTANCE.ui("slot_bg");
++        android.graphics.Bitmap frame = app.gamenative.dsr.DsrAssets.INSTANCE.ui("lineframe");
++        float dens = getResources().getDisplayMetrics().density;
++        for (int i = 0; i < 4; i++) {
++            android.graphics.RectF r = dsrTab(i);
++            dsrMenuPaint.setStyle(android.graphics.Paint.Style.FILL);
++            dsrMenuPaint.setColor(0xcc1c1a17);
++            canvas.drawRect(r, dsrMenuPaint);
++            if (bg != null) canvas.drawBitmap(bg, null, r, null);
++            android.graphics.Bitmap icon = app.gamenative.dsr.DsrAssets.INSTANCE.ui("tab" + i + (i == active ? "_lit" : ""));
++            if (icon != null) {
++                android.graphics.RectF ir = new android.graphics.RectF(r);
++                ir.inset(r.width() * 0.08f, r.height() * 0.08f);
++                canvas.drawBitmap(icon, null, ir, null);
++            }
++            if (frame != null) canvas.drawBitmap(frame, null, r, null);
++            else {
++                dsrMenuPaint.setStyle(android.graphics.Paint.Style.STROKE);
++                dsrMenuPaint.setStrokeWidth(2 * dens);
++                dsrMenuPaint.setColor(i == active ? 0xffd9b47a : 0xff8a6b45);
++                canvas.drawRect(r, dsrMenuPaint);
++            }
++        }
++    }
++
++
++    private void dsrDrawMenuButtons(Canvas canvas) {
++        dsrDrawTabs(canvas);
++        float dens = getResources().getDisplayMetrics().density, corner = 10 * dens;
++        for (int i = 0; i < dsrMenuActionCount(); i++) {
++            android.graphics.RectF r = dsrMenuAction(i);
++            Binding act = dsrMenuActions()[i];
++            boolean held = dsrMenuHeldButton == act;
++            // the gameplay buttons' look: translucent fill + bronze rim, no dark parchment (user 2026-10-15)
++            dsrMenuPaint.setStyle(android.graphics.Paint.Style.FILL);
++            dsrMenuPaint.setColor(held ? 0x994a463f : 0x591c1a17);
++            canvas.drawRoundRect(r, corner, corner, dsrMenuPaint);
++            dsrMenuPaint.setStyle(android.graphics.Paint.Style.STROKE);
++            dsrMenuPaint.setStrokeWidth(2 * dens);
++            dsrMenuPaint.setColor(held ? 0xffd9b47a : 0xff8a6b45);   // bronze rim, lit while held
++            canvas.drawRoundRect(r, corner, corner, dsrMenuPaint);
++            dsrMenuPaint.setStyle(android.graphics.Paint.Style.FILL);
++            dsrMenuPaint.setTextAlign(android.graphics.Paint.Align.CENTER);
++            dsrMenuPaint.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SERIF, android.graphics.Typeface.BOLD));
++            String label = dsrMenuLabel(act);
++            dsrMenuPaint.setTextSize(r.height() * (i == 0 ? 0.34f : label.length() == 1 ? 0.4f : 0.28f));
++            dsrMenuPaint.setColor(0xffebe5d8);
++            canvas.drawText(dsrMenuLabel(act), r.centerX(), r.centerY() + r.height() * 0.11f, dsrMenuPaint);
++        }
++    }
++
++    private void dsrMenuTouch(MotionEvent e) {
++        if (xServer == null) { touchpadView.onTouchEvent(e); return; }
++        int am = e.getActionMasked();
++        if (am == MotionEvent.ACTION_POINTER_DOWN || am == MotionEvent.ACTION_POINTER_UP) return;
++        float x = e.getX(), y = e.getY();
++        switch (am) {
++            case MotionEvent.ACTION_DOWN: {
++                int b = dsrMenuButtonAt(x, y);
++                if (b >= 0) {
++                    dsrMenuHeldButton = dsrMenuActions()[b];
++                    if (dsrMenuHeldButton == Binding.KEY_ENTER) dsrLevelUpAccept();
++                    else { handleInputEvent(dsrMenuHeldButton, true); dsrCommitGamepad(); }
++                    performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
++                    invalidate();
++                    break;
++                }
++                // hover DSR_HOVER_DELAY_MS after touch-down if the finger has not moved, so the click can follow
++                // right at lift (the game needs the hover a frame before the press). Not at touch-down: the game
++                // snaps the selection to the hovered row, so a swipe started on an item first selected that item
++                // (user 2026-10-15). Event times and uptimeMillis share one clock.
++                dsrMenuDownX = dsrMenuStepX = x; dsrMenuDownY = dsrMenuStepY = y; dsrMenuSwiped = false; dsrMenuAxis = 0;
++                dsrHoverAt = -1;
++                if (dsrMenuVel != null) dsrMenuVel.recycle();
++                dsrMenuVel = android.view.VelocityTracker.obtain();
++                dsrMenuVel.addMovement(e);
++                removeCallbacks(dsrHoverRun);
++                dsrHoverPending = dsrMouseScreen() && dsrTabAt(x, y) < 0;
++                if (dsrHoverPending) postDelayed(dsrHoverRun, DSR_HOVER_DELAY_MS);
++                break;
++            }
++            case MotionEvent.ACTION_MOVE: {
++                if (dsrMenuHeldButton != null) break;
++                if (dsrMenuVel != null) dsrMenuVel.addMovement(e);
++                if (!dsrMenuSwiped && Math.hypot(x - dsrMenuDownX, y - dsrMenuDownY) > DSR_TAP_SLOP_PX * 2) {
++                    dsrMenuSwiped = true;
++                    // one axis per swipe: a vertical scroll that drifts sideways no longer steps left / right
++                    dsrMenuAxis = Math.abs(y - dsrMenuDownY) >= Math.abs(x - dsrMenuDownX) ? 1 : 2;
++                    removeCallbacks(dsrHoverRun);
++                    boolean hovered = !dsrHoverPending && dsrHoverAt >= 0;
++                    dsrHoverPending = false;
++                    if (hovered) dsrParkPointer();   // a slow start already hovered: park, so the steps are not undone
++                }
++                if (!dsrMenuSwiped) break;
++                if (dsrMenuAxis == 1) {
++                    // finger up = list moves up = select the next item down (like dragging a phone list)
++                    while (y - dsrMenuStepY <= -DSR_SWIPE_STEP_PX) { dsrMenuStepY -= DSR_SWIPE_STEP_PX; dsrPadTap(Binding.GAMEPAD_DPAD_DOWN); }
++                    while (y - dsrMenuStepY >= DSR_SWIPE_STEP_PX) { dsrMenuStepY += DSR_SWIPE_STEP_PX; dsrPadTap(Binding.GAMEPAD_DPAD_UP); }
++                } else {
++                    // title main menu: tools/patch_menu.py lays the list out as one row, but it still steps with up/down
++                    boolean row = dsrTitleRow();
++                    while (x - dsrMenuStepX <= -DSR_SWIPE_STEP_PX) { dsrMenuStepX -= DSR_SWIPE_STEP_PX; dsrPadTap(row ? Binding.GAMEPAD_DPAD_DOWN : Binding.GAMEPAD_DPAD_RIGHT); }
++                    while (x - dsrMenuStepX >= DSR_SWIPE_STEP_PX) { dsrMenuStepX += DSR_SWIPE_STEP_PX; dsrPadTap(row ? Binding.GAMEPAD_DPAD_UP : Binding.GAMEPAD_DPAD_LEFT); }
++                }
++                break;
++            }
++            case MotionEvent.ACTION_UP:
++            case MotionEvent.ACTION_CANCEL: {
++                if (dsrMenuHeldButton != null) {
++                    // hold >= 80 ms: the game polls once a frame (33 ms), a quick tap was missed
++                    final Binding held = dsrMenuHeldButton;
++                    long wait = Math.max(0, 80 - (e.getEventTime() - e.getDownTime()));
++                    if (held != Binding.KEY_ENTER) postDelayed(() -> { handleInputEvent(held, false); dsrCommitGamepad(); }, wait);
++                    dsrMenuHeldButton = null; invalidate();
++                    break;
++                }
++                removeCallbacks(dsrHoverRun);
++                boolean hoverPending = dsrHoverPending;
++                dsrHoverPending = false;
++                if (dsrMenuSwiped && am == MotionEvent.ACTION_UP) dsrFling();
++                if (dsrMenuVel != null) { dsrMenuVel.recycle(); dsrMenuVel = null; }
++                // title main menu only: its sub-screens (System list, Options, Load Game ...) take mouse clicks below
++                if (!dsrMenuSwiped && am == MotionEvent.ACTION_UP && dsrTitleRow()) {
++                    // the title ignores the mouse: "TOUCH TO START" = any tap presses A; in the one-row main menu
++                    // (tools/patch_menu.py) a tap on an entry highlights it (agent title.c) and presses A
++                    boolean listShown = app.gamenative.dsr.DsrGameState.INSTANCE.titleListShown();
++                    timber.log.Timber.tag("DSR").i("title tap %.0f,%.0f list=%b entry=%d", x, y, listShown, dsrTitleEntryAt(x, y));
++                    // "TOUCH TO START": one A. The list then fades in for a few seconds and ignores input; an A sent
++                    // then is queued by the game and runs on the highlighted entry (Continue). So a tap on an entry
++                    // goes to the agent, which moves the highlight once the list takes input and acks; A follows the
++                    // ack (title.c). Taps elsewhere before the list is up are dropped for 4 s after the start A.
++                    long now = android.os.SystemClock.uptimeMillis();
++                    int k = dsrTitleEntryAt(x, y);
++                    // fading = the list is fading in after the start A. Past 4 s with no list the start A was lost (the
++                    // game drops input while it boots: 2026-10-16, two taps did nothing): the next tap sends A again
++                    boolean fading = now - dsrTitleStartAt > 1200 && now - dsrTitleStartAt < 4000;
++                    if (k >= 0 && (listShown || fading)) {
++                        app.gamenative.dsr.DsrGameState.INSTANCE.pickTitleEntry(k);
++                        dsrAwaitTitleAck(now);
++                    } else if (!listShown && now - dsrTitleStartAt > 4000) {
++                        dsrTitleStartAt = now;
++                        dsrPadTap(Binding.GAMEPAD_BUTTON_A);
++                    }
++                    break;
++                }
++                int tab = !dsrMenuSwiped && am == MotionEvent.ACTION_UP ? dsrTabAt(x, y) : -1;
++                if (tab >= 0) { dsrClickTab(tab); break; }
++                if (!dsrMenuSwiped && am == MotionEvent.ACTION_UP) {
++                    // press at lift, >= 60 ms after the touch-down hover (2 frames at 30 FPS: a 40 ms gap landed in
++                    // one frame when frames ran late, and the click missed); taps are usually longer, so no wait
++                    dsrPointerTo(x, y);
++                    long since = hoverPending || dsrHoverAt < 0 ? 0 : e.getEventTime() - dsrHoverAt;
++                    // (2026-10-17: 130 ms made single taps only highlight in the menus, user: double tap needed; back to 60)
++                    dsrClick(Pointer.Button.BUTTON_LEFT, Math.max(0, 60 - since));
++                    postDelayed(this::dsrParkPointer, 250);   // keep hover from overriding later d-pad steps
++                }
++                break;
++            }
++        }
++    }
++
++    /** Title main menu (one-row list; taps go to the agent's pick): TITLE phase with no sub-screen open. The title's
++     *  System list, Options, Load Game etc. (titleSubScreen) take mouse hover + click like the in-game menus. */
++    private boolean dsrTitleRow() {
++        app.gamenative.dsr.DsrGameState g = app.gamenative.dsr.DsrGameState.INSTANCE;
++        return g.getPhase() == app.gamenative.dsr.DsrGameState.Phase.TITLE && !g.getTitleSubScreen();
++    }
++
++    /** Screens that take mouse hover + click: the in-game menu and the title sub-screens. */
++    private boolean dsrMouseScreen() {
++        app.gamenative.dsr.DsrGameState g = app.gamenative.dsr.DsrGameState.INSTANCE;
++        return g.getPhase() == app.gamenative.dsr.DsrGameState.Phase.MENU
++                || g.getPhase() == app.gamenative.dsr.DsrGameState.Phase.TITLE && g.getTitleSubScreen();
++    }
++
++    /** Fast flick at lift: a few more steps along the swipe axis (1 + 1 per 900 px/s over 1500 px/s, max 5). */
++    private void dsrFling() {
++        if (dsrMenuVel == null || dsrMenuAxis == 0) return;
++        dsrMenuVel.computeCurrentVelocity(1000);
++        float v = dsrMenuAxis == 1 ? dsrMenuVel.getYVelocity() : dsrMenuVel.getXVelocity();
++        if (Math.abs(v) < 1500) return;
++        int extra = Math.min(5, 1 + (int) ((Math.abs(v) - 1500) / 900));
++        boolean row = dsrTitleRow();
++        Binding b = dsrMenuAxis == 1 ? (v < 0 ? Binding.GAMEPAD_DPAD_DOWN : Binding.GAMEPAD_DPAD_UP)
++                : (v < 0 ? (row ? Binding.GAMEPAD_DPAD_DOWN : Binding.GAMEPAD_DPAD_RIGHT)
++                         : (row ? Binding.GAMEPAD_DPAD_UP : Binding.GAMEPAD_DPAD_LEFT));
++        for (int i = 0; i < extra; i++) dsrPadTap(b);
++    }
++
++    /** Main-menu entry under a tap, or -1. Same geometry as tools/patch_menu.py: 1280x720 design space centred,
++     *  scaled by height; entries centred at MENU_SLOTS, 300 wide, at y MENU_Y..MENU_Y+MENU_H (with some slack). */
++    private static final int[] DSR_TITLE_SLOTS = {-60, 290, 640, 990, 1340};
++    private static final float DSR_TITLE_Y = 520, DSR_TITLE_H = 72, DSR_TITLE_HALF_W = 150;
++    private long dsrTitleStartAt = -10000;
++
++    /** Press A once the agent acks the title pick (polls 50 ms, gives up after 7 s). */
++    private void dsrAwaitTitleAck(long since) {
++        if (app.gamenative.dsr.DsrGameState.INSTANCE.titleAcked()) { dsrPadTap(Binding.GAMEPAD_BUTTON_A); return; }
++        if (android.os.SystemClock.uptimeMillis() - since < 7000) postDelayed(() -> dsrAwaitTitleAck(since), 50);
++    }
++
++    private int dsrTitleEntryAt(float x, float y) {
++        float unit = getHeight() / 720f;
++        if (unit <= 0) return -1;
++        float dx = x / unit - (getWidth() / unit - 1280f) / 2f, dy = y / unit;
++        if (dy < DSR_TITLE_Y - 20 || dy > DSR_TITLE_Y + DSR_TITLE_H + 20) return -1;
++        for (int i = 0; i < DSR_TITLE_SLOTS.length; i++) if (Math.abs(dx - DSR_TITLE_SLOTS[i]) <= DSR_TITLE_HALF_W) return i;
++        return -1;
++    }
++
++    /** Queue d-pad taps 100 ms apart (70 ms press, one 30 FPS frame of gap) so fast swipes register one step each. */
++    private long dsrPadNextAt;
++    private void dsrPadTap(Binding b) {
++        long now = android.os.SystemClock.uptimeMillis();
++        long at = Math.max(now, dsrPadNextAt);
++        if (at - now > 300) return;   // backlog over 3 steps: dropped, so the list stops when the finger stops
++        dsrPadNextAt = at + 100;
++        postDelayed(() -> { handleInputEvent(b, true); dsrCommitGamepad(); }, at - now);
++        postDelayed(() -> { handleInputEvent(b, false); dsrCommitGamepad(); }, at - now + 70);
++    }
++
++    /** View point -> fraction (0..1) of the X screen (= the game's render frame), or null. Tap-to-lock projection. */
++    public float[] dsrToScreenFraction(float x, float y) {
++        if (touchpadView == null || xServer == null) return null;
++        float[] p = touchpadView.toXScreen(x, y);
++        return new float[] { p[0] / xServer.screenInfo.width, p[1] / xServer.screenInfo.height };
++    }
++
++    private void dsrPointerTo(float x, float y) {
++        float[] p = touchpadView.toXScreen(x, y);
++        xServer.injectPointerMove((int) p[0], (int) p[1]);
++    }
++
++    /** Pointer to the top-left corner of the game screen (no menu control there), so it hovers nothing. */
++    private void dsrParkPointer() {
++        if (xServer != null) xServer.injectPointerMove(0, 0);
++    }
++
++    private void dsrClick(Pointer.Button button, long delayMs) {
++        postDelayed(() -> {
++            if (xServer == null) return;
++            xServer.injectPointerButtonPress(button);
++            // >= 80 ms: the game samples the mouse once a frame (33 ms); 40 ms presses were sometimes missed
++            postDelayed(() -> { if (xServer != null) xServer.injectPointerButtonRelease(button); }, 80);
++        }, delayMs);
++    }
++
++    private void dsrReleaseAll() {
++        if (dsrControls != null) dsrControls.reset();
++        if (profile == null) return;
++        for (ControlElement element : profile.getElements()) for (int id = 0; id < 10; id++) element.handleTouchUp(id);
++        GamepadState state = profile.getGamepadState();
++        state.thumbLX = state.thumbLY = state.thumbRX = state.thumbRY = 0;
++        state.triggerL = state.triggerR = 0;
++        state.buttons = 0;
++        java.util.Arrays.fill(state.dpad, false);
++        dsrCommitGamepad();
++    }
++
++    public void dsrCommitGamepad() {
++        WinHandler winHandler = xServer != null ? xServer.getWinHandler() : null;
++        if (winHandler == null || profile == null) return;
++        GamepadState state = profile.getGamepadState();
++        ExternalController controller = winHandler.getCurrentController();
++        if (controller != null) controller.state.copy(state);
++        winHandler.sendGamepadState();
++        winHandler.sendVirtualGamepadState(state);
++    }
++
+     public boolean onKeyEvent(KeyEvent event) {
+         if (profile != null && event.getRepeatCount() == 0) {
+             ExternalController controller = profile.getController(event.getDeviceId());
+diff --git a/app/src/main/java/com/winlator/widget/TouchpadView.java b/app/src/main/java/com/winlator/widget/TouchpadView.java
+index 3f643f8d..24f846ad 100644
+--- a/app/src/main/java/com/winlator/widget/TouchpadView.java
++++ b/app/src/main/java/com/winlator/widget/TouchpadView.java
+@@ -413,6 +413,11 @@ public class TouchpadView extends View implements View.OnCapturedPointerListener
+         return stylusButtonPressed || toolSetToEraser;
+     }
+ 
++    /** DSR menu layer: view coords -> X screen coords. */
++    public float[] toXScreen(float x, float y) {
++        return XForm.transformPoint(xform, x, y);
++    }
++
+     private void handleStylusLeftClick(MotionEvent event) {
+         float[] transformedPoint = XForm.transformPoint(xform, event.getX(), event.getY());
+         xServer.injectPointerMove((int) transformedPoint[0], (int) transformedPoint[1]);
+diff --git a/app/src/main/java/com/winlator/xserver/Keyboard.java b/app/src/main/java/com/winlator/xserver/Keyboard.java
+index c59f340f..fd0cbbce 100644
+--- a/app/src/main/java/com/winlator/xserver/Keyboard.java
++++ b/app/src/main/java/com/winlator/xserver/Keyboard.java
+@@ -123,6 +123,18 @@ public class Keyboard {
+         if (xKeycode == null)
+             return false;
+ 
++        if (app.gamenative.BuildConfig.DSR_MODE) {
++            // DSR reads the keyboard once a frame (33 ms): a press and release in the same frame is lost (adb "Test"
++            // typed "Tt", 2026-10-16). Every key event is queued >= DSR_KEY_GAP_MS after the previous one.
++            final boolean down = action == KeyEvent.ACTION_DOWN;
++            if (!down && action != KeyEvent.ACTION_UP) return true;
++            long now = android.os.SystemClock.uptimeMillis();
++            dsrNextKeyAt = Math.max(now, dsrNextKeyAt + DSR_KEY_GAP_MS);
++            dsrKeyHandler.postAtTime(() -> {
++                if (down) xServer.injectKeyPress(xKeycode); else xServer.injectKeyRelease(xKeycode);
++            }, dsrNextKeyAt);
++            return true;
++        }
+         if (action == KeyEvent.ACTION_DOWN) {
+             xServer.injectKeyPress(xKeycode);
+         } else if (action == KeyEvent.ACTION_UP) {
+@@ -132,6 +144,10 @@ public class Keyboard {
+         return true;
+     }
+ 
++    private static final long DSR_KEY_GAP_MS = 60;
++    private long dsrNextKeyAt;
++    private final android.os.Handler dsrKeyHandler = new android.os.Handler(android.os.Looper.getMainLooper());
++
+     private static XKeycode[] createKeycodeMap() {
+         XKeycode[] keycodeMap = new XKeycode[(KeyEvent.getMaxKeyCode() + 1)];
+         keycodeMap[KeyEvent.KEYCODE_ESCAPE] = XKeycode.KEY_ESC;
+diff --git a/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml b/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+index bbd3e021..4ae7d123 100644
+--- a/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
++++ b/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+@@ -1,5 +1,5 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+-    <background android:drawable="@drawable/ic_launcher_background"/>
+-    <foreground android:drawable="@drawable/ic_launcher_foreground"/>
++    <background android:drawable="@mipmap/ic_launcher_background"/>
++    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+ </adaptive-icon>
+\ No newline at end of file
+diff --git a/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml b/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+index bbd3e021..4ae7d123 100644
+--- a/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
++++ b/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+@@ -1,5 +1,5 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+-    <background android:drawable="@drawable/ic_launcher_background"/>
+-    <foreground android:drawable="@drawable/ic_launcher_foreground"/>
++    <background android:drawable="@mipmap/ic_launcher_background"/>
++    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+ </adaptive-icon>
+\ No newline at end of file
+diff --git a/app/src/main/res/mipmap-anydpi-v33/ic_launcher.xml b/app/src/main/res/mipmap-anydpi-v33/ic_launcher.xml
+index 8fde4563..cf79c3d7 100644
+--- a/app/src/main/res/mipmap-anydpi-v33/ic_launcher.xml
++++ b/app/src/main/res/mipmap-anydpi-v33/ic_launcher.xml
+@@ -1,6 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+-    <background android:drawable="@drawable/ic_launcher_background" />
+-    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+-    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
++    <background android:drawable="@mipmap/ic_launcher_background" />
++    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
++    <monochrome android:drawable="@mipmap/ic_launcher_monochrome" />
+ </adaptive-icon>
+diff --git a/app/src/main/res/mipmap-anydpi-v33/ic_launcher_round.xml b/app/src/main/res/mipmap-anydpi-v33/ic_launcher_round.xml
+index 8fde4563..cf79c3d7 100644
+--- a/app/src/main/res/mipmap-anydpi-v33/ic_launcher_round.xml
++++ b/app/src/main/res/mipmap-anydpi-v33/ic_launcher_round.xml
+@@ -1,6 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+-    <background android:drawable="@drawable/ic_launcher_background" />
+-    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+-    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
++    <background android:drawable="@mipmap/ic_launcher_background" />
++    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
++    <monochrome android:drawable="@mipmap/ic_launcher_monochrome" />
+ </adaptive-icon>
+diff --git a/app/src/main/res/values-da/strings.xml b/app/src/main/res/values-da/strings.xml
+index eee01da7..79e0aca9 100644
+--- a/app/src/main/res/values-da/strings.xml
++++ b/app/src/main/res/values-da/strings.xml
+@@ -1,5 +1,5 @@
+ <resources>
+-    <string name="app_name">OpenNative</string>
++    <string name="app_name">Dark Souls</string>
+     <string name="login_user">Brugerlogin</string>
+     <string name="login_2fa">Tofaktorgodkendelse</string>
+     <string name="home">Hjem</string>
+diff --git a/app/src/main/res/values-de/strings.xml b/app/src/main/res/values-de/strings.xml
+index 53fcd972..22370fd9 100644
+--- a/app/src/main/res/values-de/strings.xml
++++ b/app/src/main/res/values-de/strings.xml
+@@ -1,5 +1,5 @@
+ <resources>
+-    <string name="app_name">OpenNative</string>
++    <string name="app_name">Dark Souls</string>
+     <string name="login_user">Benutzeranmeldung</string>
+     <string name="login_2fa">Zwei-Faktor-Authentifizierung</string>
+     <string name="home">Startseite</string>
+diff --git a/app/src/main/res/values-es/strings.xml b/app/src/main/res/values-es/strings.xml
+index 165b46ab..b23b0f1a 100644
+--- a/app/src/main/res/values-es/strings.xml
++++ b/app/src/main/res/values-es/strings.xml
+@@ -1,5 +1,5 @@
+ <resources>
+-    <string name="app_name">OpenNative</string>
++    <string name="app_name">Dark Souls</string>
+     <string name="login_user">Inicio de sesión</string>
+     <string name="login_2fa">Autenticación de dos factores</string>
+     <string name="home">Inicio</string>
+diff --git a/app/src/main/res/values-fr/strings.xml b/app/src/main/res/values-fr/strings.xml
+index 9d61bc81..52bf0b13 100644
+--- a/app/src/main/res/values-fr/strings.xml
++++ b/app/src/main/res/values-fr/strings.xml
+@@ -1,5 +1,5 @@
+ <resources>
+-    <string name="app_name">OpenNative</string>
++    <string name="app_name">Dark Souls</string>
+     <string name="login_user">Connexion utilisateur</string>
+     <string name="login_2fa">Authentification à deux facteurs</string>
+     <string name="home">Accueil</string>
+diff --git a/app/src/main/res/values-it/strings.xml b/app/src/main/res/values-it/strings.xml
+index a14515c6..26c25fd3 100644
+--- a/app/src/main/res/values-it/strings.xml
++++ b/app/src/main/res/values-it/strings.xml
+@@ -1,5 +1,5 @@
+ <resources>
+-    <string name="app_name">OpenNative</string>
++    <string name="app_name">Dark Souls</string>
+     <string name="login_user">Login Utente</string>
+     <string name="login_2fa">Due Fattori</string>
+     <string name="home">Home</string>
+diff --git a/app/src/main/res/values-ja/strings.xml b/app/src/main/res/values-ja/strings.xml
+index 958d810a..8ab857b0 100644
+--- a/app/src/main/res/values-ja/strings.xml
++++ b/app/src/main/res/values-ja/strings.xml
+@@ -1,5 +1,5 @@
+ <resources>
+-    <string name="app_name">OpenNative</string>
++    <string name="app_name">Dark Souls</string>
+     <string name="login_user">ユーザーログイン</string>
+     <string name="login_2fa">ツーファクター</string>
+     <string name="home">ホーム</string>
+diff --git a/app/src/main/res/values-ko/strings.xml b/app/src/main/res/values-ko/strings.xml
+index 7954c5fb..4db952ca 100644
+--- a/app/src/main/res/values-ko/strings.xml
++++ b/app/src/main/res/values-ko/strings.xml
+@@ -1,5 +1,5 @@
+ <resources>
+-    <string name="app_name">OpenNative</string>
++    <string name="app_name">Dark Souls</string>
+     <string name="login_user">사용자 로그인</string>
+     <string name="login_2fa">2단계 인증</string>
+     <string name="home">홈</string>
+diff --git a/app/src/main/res/values-pl/strings.xml b/app/src/main/res/values-pl/strings.xml
+index f077b350..744a5a2b 100644
+--- a/app/src/main/res/values-pl/strings.xml
++++ b/app/src/main/res/values-pl/strings.xml
+@@ -1,5 +1,5 @@
+ <resources>
+-    <string name="app_name">OpenNative</string>
++    <string name="app_name">Dark Souls</string>
+     <string name="login_user">Logowanie</string>
+     <string name="login_2fa">Weryfikacja dwuetapowa</string>
+     <string name="home">Start</string>
+diff --git a/app/src/main/res/values-pt-rBR/strings.xml b/app/src/main/res/values-pt-rBR/strings.xml
+index 252b8dd5..56f1e6cb 100644
+--- a/app/src/main/res/values-pt-rBR/strings.xml
++++ b/app/src/main/res/values-pt-rBR/strings.xml
+@@ -1,5 +1,5 @@
+ <resources>
+-    <string name="app_name">OpenNative</string>
++    <string name="app_name">Dark Souls</string>
+     <string name="login_user">Login do Usuário</string>
+     <string name="login_2fa">Dois Fatores</string>
+     <string name="home">Home</string>
+diff --git a/app/src/main/res/values-ro/strings.xml b/app/src/main/res/values-ro/strings.xml
+index ca02d979..f449439f 100644
+--- a/app/src/main/res/values-ro/strings.xml
++++ b/app/src/main/res/values-ro/strings.xml
+@@ -1,5 +1,5 @@
+ <resources>
+-    <string name="app_name">OpenNative</string>
++    <string name="app_name">Dark Souls</string>
+     <string name="login_user">Autentificare utilizator</string>
+     <string name="login_2fa">Autentificare în doi pași</string>
+     <string name="home">Acasă</string>
+diff --git a/app/src/main/res/values-ru/strings.xml b/app/src/main/res/values-ru/strings.xml
+index 3b3e00d2..15a52bc8 100644
+--- a/app/src/main/res/values-ru/strings.xml
++++ b/app/src/main/res/values-ru/strings.xml
+@@ -90,7 +90,7 @@
+     <string name="app_filter_installed">Установлено</string>
+     <string name="app_filter_tool">Инструмент</string>
+     <string name="app_library">Библиотека</string>
+-    <string name="app_name">OpenNative</string>
++    <string name="app_name">Dark Souls</string>
+     <string name="appbar_scrolling_view_behavior">com.google.android.material.appbar.AppBarLayout$ScrollingViewBehavior</string>
+     <string name="appearance">Внешний вид</string>
+     <string name="audio_driver">Аудиодрайвер</string>
+diff --git a/app/src/main/res/values-uk/strings.xml b/app/src/main/res/values-uk/strings.xml
+index 045c01b0..d57b40d0 100644
+--- a/app/src/main/res/values-uk/strings.xml
++++ b/app/src/main/res/values-uk/strings.xml
+@@ -1,5 +1,5 @@
+ <resources>
+-    <string name="app_name">OpenNative</string>
++    <string name="app_name">Dark Souls</string>
+     <string name="login_user">Вхід користувача</string>
+     <string name="login_2fa">Двофакторна автентифікація</string>
+     <string name="home">Домівка</string>
+diff --git a/app/src/main/res/values-zh-rCN/strings.xml b/app/src/main/res/values-zh-rCN/strings.xml
+index ecec1206..b8c8b78e 100644
+--- a/app/src/main/res/values-zh-rCN/strings.xml
++++ b/app/src/main/res/values-zh-rCN/strings.xml
+@@ -1,5 +1,5 @@
+ <resources>
+-    <string name="app_name">OpenNative</string>
++    <string name="app_name">Dark Souls</string>
+     <string name="login_user">登录</string>
+     <string name="login_2fa">双重验证</string>
+     <string name="home">主页</string>
+diff --git a/app/src/main/res/values-zh-rTW/strings.xml b/app/src/main/res/values-zh-rTW/strings.xml
+index 031b0041..eec970ad 100644
+--- a/app/src/main/res/values-zh-rTW/strings.xml
++++ b/app/src/main/res/values-zh-rTW/strings.xml
+@@ -1,5 +1,5 @@
+ <resources>
+-    <string name="app_name">OpenNative</string>
++    <string name="app_name">Dark Souls</string>
+     <string name="login_user">登入</string>
+     <string name="login_2fa">雙重驗證</string>
+     <string name="home">主頁</string>
+diff --git a/app/src/main/res/values/arrays.xml b/app/src/main/res/values/arrays.xml
+index f8f7a46e..242c9e98 100644
+--- a/app/src/main/res/values/arrays.xml
++++ b/app/src/main/res/values/arrays.xml
+@@ -182,6 +182,7 @@
+     </string-array>
+     <string-array name="box64_bionic_version_entries">
+         <item>0.3.7 (Default)</item>
++        <item>0.4.4</item>
+         <item>0.4.2</item>
+         <item>0.4.0</item>
+         <item>0.3.8</item>
+diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
+index d34ca0ec..173a3877 100644
+--- a/app/src/main/res/values/strings.xml
++++ b/app/src/main/res/values/strings.xml
+@@ -1,5 +1,5 @@
+ <resources>
+-    <string name="app_name">OpenNative</string>
++    <string name="app_name">Dark Souls</string>
+     <string name="login_user">User Login</string>
+     <string name="login_2fa">Two Factor</string>
+     <string name="home">Home</string>

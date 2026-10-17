@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from fromsoft.containers import dcx_decompress, dcx_compress, bnd3_read, bnd3_write, bnd3_raw_entries
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = os.path.join(ROOT, 'Dark.Souls.Remastered.v1.04', 'sfx', 'FRPG_SfxBnd_CommonEffects.ffxbnd.dcx')
+SRC = os.path.join(ROOT, 'local/game', 'sfx', 'FRPG_SfxBnd_CommonEffects.ffxbnd.dcx')
 OUT = os.path.join(ROOT, 'tools', 'out')
 EMPTY_ID = 90005
 ACTION_TYPES = (27, 28, 29, 30, 31, 32, 40, 43, 55, 59, 61, 66, 70, 71, 84, 105, 107, 108, 117)

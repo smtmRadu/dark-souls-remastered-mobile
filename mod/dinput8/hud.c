@@ -3,7 +3,7 @@
    The app draws the slots natively with the game's icons (design/final_wanted_controls.html), so the stock block
    only duplicates them and sits under the stick. Hidden only when the extracted icons exist (dsr_assets/items.json,
    tools/extract_assets.py): without them the app shows text labels and the stock block is the only icon view.
-   Flag file dsr_stockhud = keep the stock block.
+   Flag file dsr_stockhud = keep the stock block (the hook still runs tap-to-lock and the camera).
 
    How: patch FeShortcut's vtable slot 16 (+0x80, Update(this, float dt)); after the original update, clear the
    visible bit (bit 1 of obj+0x28) of every object in the dialog's list (dlg+0x18, count dlg+0x20) - the same
@@ -30,14 +30,17 @@ static void hide_objects(uint8_t *dlg) {
 }
 
 /* FeShortcut updates once per gameplay frame on the game thread: tap-to-lock and the touch camera apply here. */
-static void hud_update0(uint8_t *dlg, float dt) { lock_apply(); cam_apply(); real_hud_update[0](dlg, dt); hide_objects(dlg); }
-static void hud_update1(uint8_t *dlg, float dt) { real_hud_update[1](dlg, dt); hide_objects(dlg); }
-static void hud_update2(uint8_t *dlg, float dt) { real_hud_update[2](dlg, dt); hide_objects(dlg); }
+/* hud_hide 0 (dsr_stockhud flag / no extracted icons): the hooks still run tap-to-lock + camera, the stock block stays */
+static int hud_hide = 1;
+static void hud_update0(uint8_t *dlg, float dt) { lock_apply(); cam_apply(); real_hud_update[0](dlg, dt); if (hud_hide) hide_objects(dlg); }
+static void hud_update1(uint8_t *dlg, float dt) { real_hud_update[1](dlg, dt); if (hud_hide) hide_objects(dlg); }
+static void hud_update2(uint8_t *dlg, float dt) { real_hud_update[2](dlg, dt); if (hud_hide) hide_objects(dlg); }
 static void (*const hud_hooks[N_HUD_VT])(uint8_t *, float) = { hud_update0, hud_update1, hud_update2 };
 
 static void hook_hud(void) {
-    if (GetFileAttributesA("dsr_stockhud") != INVALID_FILE_ATTRIBUTES) { logmsg("hud: stock slots kept (flag)"); return; }
-    if (GetFileAttributesA("dsr_assets/items.json") == INVALID_FILE_ATTRIBUTES) { logmsg("hud: no extracted icons, stock slots kept"); return; }
+    /* 2026-10-17: these used to return before hooking, which also turned off tap-to-lock and the touch camera */
+    if (GetFileAttributesA("dsr_stockhud") != INVALID_FILE_ATTRIBUTES) { logmsg("hud: stock slots kept (flag)"); hud_hide = 0; }
+    else if (GetFileAttributesA("dsr_assets/items.json") == INVALID_FILE_ATTRIBUTES) { logmsg("hud: no extracted icons, stock slots kept"); hud_hide = 0; }
     for (unsigned i = 0; i < N_HUD_VT; i++) {
         void **vt = (void **)hud_vts[i];
         real_hud_update[i] = (void (*)(uint8_t *, float))vt[16];
@@ -45,7 +48,7 @@ static void hook_hud(void) {
         if (!VirtualProtect(&vt[16], 8, PAGE_READWRITE, &old)) { logmsg("hud: VirtualProtect failed %lu", GetLastError()); return; }
         vt[16] = (void *)hud_hooks[i];
         VirtualProtect(&vt[16], 8, old, &old);
-        logmsg("hud: vt %llx update %p hooked (hidden)", (unsigned long long)hud_vts[i], (void *)real_hud_update[i]);
+        logmsg("hud: vt %llx update %p hooked (%s)", (unsigned long long)hud_vts[i], (void *)real_hud_update[i], hud_hide ? "hidden" : "stock");
     }
 }
 
@@ -77,7 +80,9 @@ static void menu_hud(void) {
     /* 0x17 = Level Up screen (opened from the bonfire) */
     /* station menus (re/ui/menu_ids.txt): 0x19 attune, 0x1a bottomless box, 0xb buy, 0xc repair, 0xd upgrade, 0x40 sell,
        0x24 warp (attune statelog 2026-10-16: 0x9 2 -> 0, 0x19 0 -> 1 -> 2) */
-    static const int station[] = { 0x19, 0x1a, 0xb, 0xc, 0xd, 0x40, 0x24 };
+    /* + 0xb4 covenant (3 = open, 2026-10-17), 0x11 general dialog (message / yes-no box: Kindle while Hollow ...;
+       user: health bar + Estus label stayed visible) */
+    static const int station[] = { 0x19, 0x1a, 0xb, 0xc, 0xd, 0x40, 0x24, 0xb4, 0x11 };
     int st = 0;
     for (unsigned i = 0; i < sizeof station / sizeof station[0]; i++) st |= ms_get(station[i]) != 0;
     int menu = (ms_get(8) != 0 || (s9 != 0 && s9 != 4) || ms_get(0x17) != 0 || st || ms_get(0x3b) != 0 || ms_get(0x42) != 0) && ms_get(0x2a) != 3 && !env;

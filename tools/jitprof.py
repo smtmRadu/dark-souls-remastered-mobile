@@ -7,7 +7,7 @@ Prints the hottest game functions (from the exe's .pdata) and the share that sta
 import bisect, collections, re, struct, sys
 import pefile
 
-EXE = "Dark.Souls.Remastered.v1.04/DarkSoulsRemastered.exe"
+EXE = "local/game/DarkSoulsRemastered.exe"
 
 
 def load_map(path):

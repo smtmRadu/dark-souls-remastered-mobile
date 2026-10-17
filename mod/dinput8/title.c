@@ -32,9 +32,14 @@ static void patch_title_list(void) {
 /* "PRESS ANY BUTTON" on the title screen -> "TOUCH TO START". The text comes from the loaded message files
    (FMG Menu_others_ 130008 / System_message_win32_ 101000, UTF-16, two copies on the heap). The agent thread scans
    the writable memory once the files are loaded and overwrites the strings in place (shorter text + terminator).
+   The same scan blanks every whole string "Log In" (Menu_others_ 0x61f9a): the title Log In row is hidden (above),
+   and its text id serves as the blank padding of the no-save title row (title_pad). The FMGs have no empty string
+   (an id without an entry prints "?MenuOther? ID", a null one prints the number).
    Retries every 2 s for 2 min (the files load a few seconds after start). Flag file dsr_stocktitle = keep it. */
-static const WCHAR title_from[] = L"PRESS ANY BUTTON";
-static const WCHAR title_to[] = L"TOUCH TO START";
+static const struct { const WCHAR *from, *to; int whole; } title_repl[] = {
+    { L"PRESS ANY BUTTON", L"TOUCH TO START", 0 },
+    { L"Log In", L"", 1 },   /* whole = only at a string start (previous char 0) */
+};
 
 static int replace_title_text(void) {
     /* ReadProcessMemory on our own process: a region freed mid-scan fails the read instead of crashing */
@@ -48,12 +53,17 @@ static int replace_title_text(void) {
         if ((uint64_t)mi.BaseAddress >= 0x140000000ULL && (uint64_t)mi.BaseAddress < 0x142000000ULL) continue;   /* image */
         uint8_t *base = mi.BaseAddress, *end = base + mi.RegionSize;
         for (uint8_t *c = base; c < end; c += 65536) {
-            SIZE_T want = (SIZE_T)(end - c) < 65536 + sizeof title_from ? (SIZE_T)(end - c) : 65536 + sizeof title_from;
+            SIZE_T want = (SIZE_T)(end - c) < 65536 + 40 ? (SIZE_T)(end - c) : 65536 + 40;
             SIZE_T got = 0;
-            if (!ReadProcessMemory(self, c, buf, want, &got) || got < sizeof title_from) continue;
-            for (SIZE_T i = 0; i + sizeof title_from <= got && i < 65536; i += 2) {
-                if (buf[i] != 'P' || buf[i + 12] != 'A' || memcmp(buf + i, title_from, sizeof title_from)) continue;
-                if (WriteProcessMemory(self, c + i, title_to, sizeof title_to, NULL)) n++;
+            if (!ReadProcessMemory(self, c, buf, want, &got) || got < 16) continue;
+            for (int r = 0; r < 2; r++) {
+                const WCHAR *f = title_repl[r].from;
+                SIZE_T len = (lstrlenW(f) + 1) * 2;   /* with the terminator */
+                for (SIZE_T i = 0; i + len <= got && i < 65536; i += 2) {
+                    if (buf[i] != (uint8_t)f[0] || buf[i + 2] != (uint8_t)f[1] || memcmp(buf + i, f, len)) continue;
+                    if (title_repl[r].whole && (i < 2 ? c == base : buf[i - 2] || buf[i - 1])) continue;
+                    if (WriteProcessMemory(self, c + i, title_repl[r].to, (lstrlenW(title_repl[r].to) + 1) * 2, NULL)) n += r ? 0x100 : 1;
+                }
             }
         }
     }
@@ -67,7 +77,11 @@ static void patch_title_text(int tick) {   /* agent thread, called every 50 ms *
     if (off || tick > 20 * 120) { done = 1; return; }
     if (tick % 40) return;
     int n = replace_title_text();
-    if (n) { done = 1; logmsg("title: \"PRESS ANY BUTTON\" -> \"TOUCH TO START\" (%d copies, %.1f s)", n, tick / 20.0); }
+    if (n & 0xff) {
+        done = 1;
+        logmsg("title: \"PRESS ANY BUTTON\" -> \"TOUCH TO START\" (%d copies), \"Log In\" blanked (%d), %.1f s",
+               n & 0xff, n >> 8, tick / 20.0);
+    }
 }
 
 /* Tap on a main-menu entry: the app writes dsr_title.txt = "<entry index>" (temp file + rename) and presses A
@@ -88,8 +102,45 @@ static void title_poll(void) {   /* agent thread */
     if (k >= 0 && k < 8) InterlockedExchange(&title_pick, k);
 }
 
+/* No save -> the list is New Game / System / Quit Game = slots 0..2 of the 5-slot row (left-heavy, user
+   2026-10-17). The table is then rewritten to [blank, ..., New Game, System, Quit Game, blank]: the blanks are
+   copies of the always-visible Log In row (action 5, offline) with the blanked "Log In" text. 3 entries ->
+   5, centred. When a save appears (7 = 5 + 2 blanks) the original table comes back. Taps on blank slots are
+   dropped and the highlight never rests on them. */
+#define TITLE_BLANK_TEXT 0x61f9au   /* "Log In", blanked in memory (replace_title_text) */
+static uint32_t title_orig[30];
+static int title_padded;
+static void title_pad(int on) {
+    uint32_t *t = (uint32_t *)P_TITLE_TABLE;
+    if (on) {
+        memcpy(title_orig, t, sizeof title_orig);
+        uint32_t pad[3] = { TITLE_BLANK_TEXT, 5, title_orig[5 * 3 + 2] };
+        uint32_t n[30];
+        memcpy(n, pad, 12);                       /* 0: blank */
+        memcpy(n + 3, title_orig, 12 * 5);        /* 1..5: Continue, Load, New, System, Information */
+        memcpy(n + 18, title_orig + 6 * 3, 12);   /* 6: Log Out */
+        memcpy(n + 21, title_orig + 9 * 3, 12);   /* 7: Quit Game */
+        memcpy(n + 24, pad, 12);                  /* 8: blank */
+        memcpy(n + 27, title_orig + 7 * 3, 12);   /* 9: Switch Profile (always filtered) */
+        memcpy(t, n, sizeof n);
+    } else memcpy(t, title_orig, sizeof title_orig);
+    title_padded = on;
+    logmsg("title: blank padding %s", on ? "on (no save)" : "off");
+}
+
 static void title_update(uint8_t *dlg, float dt) {
     static uint8_t *published;
+    static int stock = -1;
+    if (stock < 0) stock = GetFileAttributesA("dsr_stocktitle") != INVALID_FILE_ATTRIBUTES;
+    if (!stock) {
+        int c = *(int *)(dlg + 0x244);
+        if (!title_padded && c == 3) title_pad(1);
+        else if (title_padded && c == 7) title_pad(0);
+        if (title_padded && c == 5 && !dlg[0x24d]) {   /* keep the highlight off the blank slots */
+            int *hl = (int *)(dlg + 0x234);
+            if (*hl == 0) *hl = 1; else if (*hl == 4) *hl = 3;
+        }
+    }
     if (dlg != published) {   /* the app reads +0x24c (list shown) from here to tell "touch to start" from the menu */
         published = dlg;
         FILE *f = fopen("dsr_title_dlg.tmp", "w");
@@ -106,7 +157,8 @@ static void title_update(uint8_t *dlg, float dt) {
         if (dlg[0x254] && dlg[0x255]) {
             InterlockedExchange(&title_pick, -1);
             pick_at = 0;
-            if (!dlg[0x24d] && k < count) {
+            if (title_padded && (k == 0 || k == 4)) logmsg("title: tap on blank slot %ld dropped", k);
+            else if (!dlg[0x24d] && k < count) {
                 *(int *)(dlg + 0x234) = k;
                 FILE *f = fopen("dsr_title_ack.txt", "w");
                 if (f) { fprintf(f, "%ld\n", k); fclose(f); }

@@ -16,7 +16,7 @@ from fromsoft.containers import dcx_decompress, dcx_compress
 from fromsoft.drb import _chunks
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-GAME = os.path.join(HERE, '..', 'Dark.Souls.Remastered.v1.04')
+GAME = os.path.join(HERE, '..', 'local', 'game')
 
 # Flip6 / controls-6.icp: Estus slot centre x 0.125 * 2640 px = 330 px = 220 units, box ~139..297 x 127..284.
 EDITS = {
@@ -188,6 +188,12 @@ NULL_RECTS[('T07-00', 'cursor0_0')] = (297, 538, 552, 594)   # label cell (the h
 NULL_RECTS[('T07-00', 'cursor1_0')] = (377, 622, 621, 670)
 NULL_RECTS[('T07-00', 'cursor2_0')] = (660, 622, 904, 670)
 
+# Bottom message boxes (R03-21: message + OK, e.g. "Cannot kindle while Hollow"; R03-22: message + two buttons),
+# placed in R03 at y 563..663 = under the app's item slot row (user 2026-10-17: covered, too small). Moved to the
+# screen centre, 1.5x wide / 2x high (the dest rect scales the child), message 1.4x and buttons 2x text.
+for _d in ('R03-21', 'R03-22'):
+    RECTS[('R03', _d)] = ((176, 260, 1107, 460), None)
+
 # Rules applied to every object (not Null shapes: their params are not a rect):
 # - in-game menus (inventory I*, equipment/status R*, system T07 ...) are anchored to the right edge: scaling origin
 #   (1280, 0). Origin (640, 0) centres them on the 22:9 screen.
@@ -231,6 +237,18 @@ for _i in range(11):
         NULL_RECTS[('F04-01', f'grayout_drop{_i}')] = (138, _t, 483, _t + TALK_H)
 RECTS[('F04-01', 'scrollbar')] = ((-2000, -2000, -1968, -1984), None)
 RECTS[('F04-01', 'text_key-guide')] = ((-2000, -2000, -1968, -1984), None)
+# Covenant / bonfire warp list (F09 + F09-06, same frame; user 2026-10-17: covenant rows tiny). It can scroll (warp
+# lists are long) and the game fills 11 rows per page, so all 11 must fit: pitch 30 -> 56 (text box 54, 1.4x font),
+# rows 72..688 inside the same tall frame as the bonfire list. The scroll strip stays (frame size).
+for _i in range(11):
+    _t = TALK_TOP + 56 * _i
+    RECTS[('F09-06', f'button{_i}_0')] = ((138, _t, 483, _t + 54), 2)
+    TEXT_ALIGN[('F09-06', f'button{_i}_0')] = 0x08
+    NULL_RECTS[('F09-06', f'cursor{_i}_0')] = (138, _t, 483, _t + 54)
+RECTS[('F09', 'BG')] = (TALK_FRAME, None)
+RECTS[('F09-06', 'F04_frame_PC')] = (TALK_FRAME, None)
+RECTS[('F09-06', 'scrollbar')] = ((127, TALK_TOP, 137, TALK_TOP + 56 * 11), None)
+RECTS[('F09-06', 'text_key-guide')] = ((-2000, -2000, -1968, -1984), None)
 # frame ornaments (F04_bg, own space 430x600): corners / bars to the edges
 for _n, _r in {'R03_bg_normal': (7, 0, 487, 600), 'F04_frame_3': (16, 2, 87, 79), 'F04_frame_4': (397, 2, 468, 79),
                'object2': (87, 8, 397, 23), 'F04_frame_6': (17, 519, 92, 600), 'F04_frame_7': (394, 519, 469, 600),
@@ -369,6 +387,7 @@ STRETCH_DOWN = {(d, s): 270 for d in ('I06_parchment6r', 'I06_parchment5r', 'I06
 # (mod/dinput8/title.c patch_fonts) makes them 2.0x / 1.4x (docs/ui/FONTS_RE.md). Font index != size order.
 FONT_BUMPS = {'I06-00': {7: 1}, 'I01-01': {8: 1}, 'R01-00': {7: 2, 9: 1}, 'R13-00': {6: 2}, 'R15-00': {6: 2},
               'R14-00': {7: 2, 9: 1}, 'R14-01': {7: 2}, 'F04-01': {8: 2},
+              'R03-21': {8: 2, 9: 1}, 'R03-22': {8: 2, 9: 1},
               'R16-00': {7: 2, 9: 1}, 'R16-01': {7: 2}, 'R17-00': {7: 2, 9: 1}, 'R17-01': {7: 2}}
 FONT_BUMPS.update(FONT_BUMPS_R03)
 for _d in R03_BIG:   # R03-01 / R03-02 window 1.5x wide, 2x high around the screen centre (see R03_BIG)
