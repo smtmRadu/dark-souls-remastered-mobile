@@ -2729,7 +2729,7 @@ index f9001094..fa1b8dcb 100644
              frameCount++;
              return;
 diff --git a/app/src/main/java/com/winlator/widget/InputControlsView.java b/app/src/main/java/com/winlator/widget/InputControlsView.java
-index 7faf1b35..b25b303c 100644
+index 7faf1b35..139d5512 100644
 --- a/app/src/main/java/com/winlator/widget/InputControlsView.java
 +++ b/app/src/main/java/com/winlator/widget/InputControlsView.java
 @@ -202,7 +202,7 @@ public class InputControlsView extends View {
@@ -2776,7 +2776,7 @@ index 7faf1b35..b25b303c 100644
          if (!editMode && profile != null) {
              int actionIndex = event.getActionIndex();
              int pointerId = event.getPointerId(actionIndex);
-@@ -1352,6 +1366,569 @@ public class InputControlsView extends View {
+@@ -1352,6 +1366,586 @@ public class InputControlsView extends View {
          return true;
      }
  
@@ -2793,13 +2793,19 @@ index 7faf1b35..b25b303c 100644
 +    private int dsrNoticePresses;
 +    private boolean dsrLastCutscene;
 +    private int dsrLastCharStep;
-+    private boolean dsrKeyboardUp;
++    private boolean dsrKeyboardUp, dsrNameOkPending;
 +
 +    /**
 +     * Character creation name field (MenuMan 0x1e: 5 = "Enter character name" box, 7 = typing): the app presses OK on
 +     * the box itself and opens the Android keyboard while the field takes keys; it hides it when typing ends
 +     * (user 2026-10-16: no Keyboard button, the keyboard pops up by itself).
 +     */
++    private void dsrHideKeyboard() {
++        android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager)
++                getContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
++        if (imm != null) imm.hideSoftInputFromWindow(getWindowToken(), 0);
++    }
++
 +    private void dsrCharMakeWatch() {
 +        app.gamenative.dsr.DsrGameState g = app.gamenative.dsr.DsrGameState.INSTANCE;
 +        boolean charMake = g.getPhase() == app.gamenative.dsr.DsrGameState.Phase.MENU
@@ -2807,13 +2813,24 @@ index 7faf1b35..b25b303c 100644
 +        int step = charMake ? g.getCharMakeStep() : 0;
 +        if (step == dsrLastCharStep) return;
 +        timber.log.Timber.tag("DSR").i("char make step %d -> %d", dsrLastCharStep, step);
-+        if (step == 5) postDelayed(() -> dsrPadTap(Binding.GAMEPAD_BUTTON_A), 450);   // OK on the name box
++        /* OK on the name box. The box can show twice in a row (step 5 -> 0 -> 5 -> 7): one OK at a time, and none once
++           typing (7) runs or the window is back on the list (2): a second OK there ended typing with an empty name
++           (user 2026-10-17: "the keyboard doesn't work"). */
++        if (step == 5 && !dsrNameOkPending) {
++            dsrNameOkPending = true;
++            postDelayed(() -> {
++                dsrNameOkPending = false;
++                int now = app.gamenative.dsr.DsrGameState.INSTANCE.getCharMakeStep();
++                if (now != 7 && now != 2) dsrPadTap(Binding.GAMEPAD_BUTTON_A);
++                else timber.log.Timber.tag("DSR").i("name OK skipped (step %d)", now);
++            }, 450);
++        }
 +        if (step == 7 && !dsrKeyboardUp) { dsrKeyboardUp = true; triggerShowKeyboard(); }
 +        if (step != 7 && dsrKeyboardUp) {
 +            dsrKeyboardUp = false;
-+            android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager)
-+                    getContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
-+            if (imm != null) imm.hideSoftInputFromWindow(getWindowToken(), 0);
++            dsrHideKeyboard();
++            /* the show runs 500 ms late (Android 12+ quirk in XServerScreen): hide again after it */
++            postDelayed(() -> { if (!dsrKeyboardUp) dsrHideKeyboard(); }, 700);
 +        }
 +        dsrLastCharStep = step;
 +    }

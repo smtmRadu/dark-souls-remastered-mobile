@@ -8,6 +8,12 @@ Runs the PC version of **Dark Souls: Remastered** on an Android phone, with touc
 
 This repository contains no game files so you should get them yourself.
 
+## Video
+
+[![Gameplay preview: click for the full video](docs/media/gameplay-preview.gif)](docs/media/gameplay.mp4)
+
+**[▶ Full gameplay video (2:18)](docs/media/gameplay.mp4)**: character creation, the intro, the Undead Asylum cell, the first fight and the first bonfire. Recorded on the phone, no sound.
+
 ## Screenshots
 
 Galaxy Z Flip6, 30 FPS.
